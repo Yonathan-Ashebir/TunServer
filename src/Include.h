@@ -44,6 +44,12 @@ void exitWithError(char *tag) {
     exit(errno);
 }
 
+inline void shiftElements(unsigned char *from, unsigned int len, int by) {
+    unsigned char temp[len];
+    memcpy(temp, from, len);
+    memcpy(from + by, temp, len);
+}
+
 void initPlatform() {
 
 #ifdef _WIN32

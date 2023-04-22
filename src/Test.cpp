@@ -60,5 +60,5 @@ void selectTest() {
 }
 
 int main() {
-
+    cout << (6 / 4 * 4) << endl;
 }
