@@ -1,25 +1,27 @@
 //
 // Created by yoni_ash on 4/15/23.
 //
-#include "Include.h"
+#include "packet/TCPPacket.h"
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 using namespace std;
 
-__attribute__((unused)) void printSizeC() {
+void printSizeC() {
     printf("Char size: %lu\n", sizeof(char));
 }
 
 
-__attribute__((unused)) void sizeOfArrayAndElement() {
+void sizeOfArrayAndElement() {
     char arr[30];
-    __attribute__((unused)) typeof(arr + 1) el;
+    typeof(arr + 1) el;
     printf("Arr size: %lu and its element: %lu\n", sizeof(arr), sizeof(el));
 }
 
-struct __attribute__((unused)) boolArray {
-    __attribute__((unused)) bool a;
+struct boolArray {
+    bool a;
     bool b;
-    __attribute__((unused)) bool c;
+    bool c;
 };
 
 void shiftBy(int arr[], int ind, int len, int by) {
@@ -62,3 +64,4 @@ void selectTest() {
 int main() {
     cout << (6 / 4 * 4) << endl;
 }
+#pragma clang diagnostic pop

@@ -12,10 +12,10 @@
 #endif //TUNSERVER_PACKET_H
 
 #include "../Include.h"
+#include "Packet.h"
 
-class TCPPacket {
+class TCPPacket : public Packet{
 public:
-    const unsigned int MIN_SIZE = 300;
 
     explicit TCPPacket(unsigned int size);
 
@@ -25,7 +25,7 @@ public:
 
     inline void setDestination(sockaddr_in &dest);
 
-    inline void setDoFragment(bool shouldFragment);
+
 
     inline void setSequenceNumber(unsigned int seq);
 
@@ -61,7 +61,6 @@ public:
 
     inline bool isTo(sockaddr_in &dest);
 
-    inline bool getDoFragment();
 
     inline unsigned int getSequenceNumber();
 
@@ -94,16 +93,14 @@ public:
     inline unsigned int available() const;
 
 private:
-    unsigned char *buffer = nullptr;
-    unsigned int maxSize = 0;
-    unsigned int length = 0;
+
     unsigned int optionsLength = 0;
 
     inline void setFlag(unsigned int offset, bool val);
 
     inline tcphdr *getTcpHeader();
 
-    inline iphdr *getIpHeader();
+
 
 };
 

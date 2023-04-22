@@ -22,6 +22,7 @@
 #include <netinet/tcp.h>
 #include <cmath>
 #include <fcntl.h>
+#include <random>
 
 #ifdef _WIN32
 //#define WIN32_LEAN_AND_MEAN

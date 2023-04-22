@@ -5,4 +5,4 @@ set(CMAKE_CXX_STANDARD 14)
 
 add_executable(TunServer src/Main.cpp src/HandleTun.cpp src/HandleTun.h src/Test.cpp src/Packet.h src/Include.h)
 
-add_executable(test src/Test.cpp)
+add_executable(test src/Test.cpp src/tunnel/Tunnel.cpp src/tunnel/Tunnel.h src/packet/Packet.cpp src/packet/Packet.h)

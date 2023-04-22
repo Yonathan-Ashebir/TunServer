@@ -11,24 +11,10 @@ using namespace std;
 
 const unsigned int OPTIONS_INDEX = sizeof(iphdr) + sizeof(tcphdr);
 
-TCPPacket::TCPPacket(unsigned int size) {
-    if (size < MIN_SIZE)size = MIN_SIZE;
-    maxSize = size;
-    buffer = new unsigned char[size]();
-    length = sizeof(iphdr) + sizeof(tcphdr);
-
-    auto iph = (iphdr *) buffer;
+TCPPacket::TCPPacket(unsigned int size):Packet(size) {
     tcphdr *tcph = (tcphdr *) buffer + sizeof(iphdr);
 
-    iph->ihl = 5;
-    iph->version = 4;
-    iph->tos = 0;
-    iph->tot_len = length;
-    iph->id = htonl(0); // id of this packet
-    iph->frag_off = 1 << 6; //do not frag
-    iph->ttl = 64;
-    iph->protocol = IPPROTO_TCP;
-    iph->check = 0; // correct calculation follows later
+
 
     tcph->seq = htonl(0);
     tcph->ack_seq = htonl(0);
@@ -41,10 +27,7 @@ tcphdr *TCPPacket::getTcpHeader() {
     return tcph;
 }
 
-iphdr *TCPPacket::getIpHeader() {
-    auto *iph = (iphdr *) buffer;
-    return iph;
-}
+
 
 void TCPPacket::setEnds(sockaddr_in &src, sockaddr_in &dest) {
     auto iph = getIpHeader();
@@ -73,9 +56,6 @@ void TCPPacket::setDestination(sockaddr_in &dest) {
     tcph->dest = dest.sin_port;
 }
 
-void TCPPacket::setDoFragment(bool shouldFragment) {
-    //TODO
-}
 
 void TCPPacket::setSequenceNumber(unsigned int seq) {
     auto tcph = getTcpHeader();
@@ -237,9 +217,6 @@ sockaddr_in TCPPacket::getDestination() {//warn: skipped memset to zero
     return addr;
 }
 
-bool TCPPacket::getDoFragment() {
-    //TODO
-}
 
 unsigned int TCPPacket::getSequenceNumber() {
     auto tcph = getTcpHeader();
