@@ -11,9 +11,8 @@ using namespace std;
 
 const unsigned int OPTIONS_INDEX = sizeof(iphdr) + sizeof(tcphdr);
 
-TCPPacket::TCPPacket(unsigned int size):Packet(size) {
+TCPPacket::TCPPacket(unsigned int size) : Packet(size) {
     tcphdr *tcph = (tcphdr *) buffer + sizeof(iphdr);
-
 
 
     tcph->seq = htonl(0);
@@ -28,7 +27,6 @@ tcphdr *TCPPacket::getTcpHeader() {
 }
 
 
-
 void TCPPacket::setEnds(sockaddr_in &src, sockaddr_in &dest) {
     auto iph = getIpHeader();
     auto tcph = getTcpHeader();
@@ -38,6 +36,21 @@ void TCPPacket::setEnds(sockaddr_in &src, sockaddr_in &dest) {
 
     tcph->source = src.sin_port;
     tcph->dest = dest.sin_port;
+}
+
+void TCPPacket::swapEnds() {
+    auto iph = getIpHeader();
+    auto tcph = getTcpHeader();
+
+    auto src = iph->saddr;
+    auto srcPort = tcph->source;
+
+    iph->saddr = iph->daddr;
+    iph->daddr = src;
+
+    tcph->source = tcph->dest;
+    tcph->dest = srcPort;
+
 }
 
 void TCPPacket::setSource(sockaddr_in &src) {
@@ -75,42 +88,45 @@ void TCPPacket::setUrgentPointer(unsigned short urg) {
 }
 
 
-void TCPPacket::setFlag(unsigned int offset, bool val) {
-    if (offset > 7) throw invalid_argument("Invalid tcp flag offset: " + to_string(offset));
-    const unsigned int TCP_FLAGS_OFFSET = sizeof(iphdr) + 13;
-
-    if (val)
-        buffer[TCP_FLAGS_OFFSET] |= 1 <<
-                                      offset;
-    else buffer[TCP_FLAGS_OFFSET] &= ~(1 << offset);
-}
-
 void TCPPacket::setFinFlag(bool isFin) {
-    setFlag(0, isFin);
+    if (isFin) getTcpHeader()->fin = 1;
+    else getTcpHeader()->fin = 0;
 }
 
 void TCPPacket::setSynFlag(bool isSyn) {
-    setFlag(1, isSyn);
+    if (isSyn) getTcpHeader()->syn = 1;
+    else getTcpHeader()->syn = 0;
 }
 
 void TCPPacket::setResetFlag(bool isRst) {
-    setFlag(2, isRst);
+    if (isRst) getTcpHeader()->rst = 1;
+    else getTcpHeader()->rst = 0;
 }
 
 void TCPPacket::setPushFlag(bool isPush) {
-    setFlag(3, isPush);
+    if (isPush) getTcpHeader()->psh = 1;
+    else getTcpHeader()->psh = 0;
 }
 
 void TCPPacket::setWindowSize(unsigned short window, unsigned char shift) {
-    if (shift > 14)throw invalid_argument("Invalid window scale shift: " + to_string(shift));
+    setWindowScale(shift);
     auto tcph = getTcpHeader();
     tcph->window = htons(window);
-    setOption(3, 3, &shift);
 }
 
 void TCPPacket::setWindowSize(unsigned short window) {
     auto tcph = getTcpHeader();
     tcph->window = htons(window);
+}
+
+void TCPPacket::setWindowScale(unsigned char shift) {
+    if (shift > 14)throw invalid_argument("Invalid window scale shift: " + to_string(shift));
+    setOption(3, 3, &shift);
+}
+
+void TCPPacket::setMSS(unsigned short size) {
+    size = htons(size);
+    setOption(2, 4, (unsigned char *) &size);
 }
 
 void TCPPacket::setOption(unsigned char kind, unsigned char len, unsigned char *payload) {
@@ -302,17 +318,24 @@ unsigned char TCPPacket::getOption(unsigned char kind, unsigned char *data, unsi
     return 0;
 }
 
-unsigned char TCPPacket::getWindowScale() {
+inline unsigned char TCPPacket::getWindowShift() {
     unsigned char data;
     unsigned char len = getOption(3, &data, 1);
     if (len != 3)throw invalid_argument("Invalid window scale length encountered: " + to_string(len));
     return data;
 }
 
+unsigned short TCPPacket::getMSS() {
+    unsigned short result;
+    unsigned int len = getOption(2, (unsigned char *) &result, 2);
+    if (len != 2) throw invalid_argument("Packet with invalid mss len: " + to_string(len));
+    return ntohs(result);
+}
+
 unsigned int TCPPacket::appendData(char *data, unsigned int len) {
-    unsigned int writable = min(len, maxSize - length);
-    memcpy(buffer + length, data, writable);
-    return writable;
+    unsigned int total = min(len, maxSize - length);
+    memcpy(buffer + length, data, total);
+    return total;
 }
 
 void TCPPacket::clearData() {
@@ -321,6 +344,76 @@ void TCPPacket::clearData() {
 
 unsigned int TCPPacket::available() const {
     return maxSize - length;
+}
+
+unsigned int TCPPacket::getDataLength() {
+    return length - OPTIONS_INDEX - optionsLength;
+}
+
+unsigned int TCPPacket::copyDataTo(unsigned char *buff, unsigned int len) {
+    unsigned int total = min(len, getDataLength());
+    memcpy(buff, buffer + OPTIONS_INDEX + optionsLength, total);
+    return total;
+}
+
+void TCPPacket::makeSyn(unsigned int seq, unsigned int ack) {
+    setSequenceNumber(seq);
+    setAcknowledgmentNumber(ack);
+    clearData();
+
+    auto tcph = getTcpHeader();
+    tcph->syn = true;
+    tcph->rst = false;
+    tcph->fin = false;
+}
+
+void TCPPacket::makeFin(unsigned int seq, unsigned int ack) {
+    setSequenceNumber(seq);
+    setAcknowledgmentNumber(ack);
+
+    auto tcph = getTcpHeader();
+    tcph->syn = false;
+    tcph->rst = false;
+    tcph->fin = true;
+}
+
+void TCPPacket::makeResetAck(unsigned int ack) {
+    setAcknowledgmentNumber(ack);
+    setSequenceNumber(0);
+    clearData();
+
+    auto tcph = getTcpHeader();
+    tcph->syn = false;
+    tcph->rst = true;
+    tcph->fin = false;
+}
+
+void TCPPacket::makeResetSeq(unsigned int seq) {
+    setSequenceNumber(seq);
+    setAcknowledgmentNumber(0);
+    clearData();
+
+    auto tcph = getTcpHeader();
+    tcph->syn = false;
+    tcph->rst = true;
+    tcph->fin = false;
+}
+
+void TCPPacket::makeNormal(unsigned int seqNo, unsigned int ackSeq) {
+    setSequenceNumber(seqNo);
+    setAcknowledgmentNumber(ackSeq);
+
+    auto tcph = getTcpHeader();
+    tcph->syn = false;
+    tcph->rst = false;
+    tcph->fin = false;
+};
+
+inline unsigned int TCPPacket::getSegmentLength() {
+    unsigned int result = getDataLength();
+    if (isSyn())result++;
+    if (isFin())result++;
+    return result;
 }
 
 #pragma clang diagnostic pop

@@ -1,3 +1,4 @@
 - Implement ipv6
-- Implement delayed ack
 - Implement rtt based rto
+- const getters
+- Implement unordered packets handling

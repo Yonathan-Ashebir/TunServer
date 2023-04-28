@@ -6,6 +6,7 @@
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
+
 Packet::Packet(unsigned int size) {
     if (size < MIN_SIZE)size = MIN_SIZE;
     maxSize = size;
@@ -35,6 +36,22 @@ void Packet::setDoFragment(bool shouldFragment) {
 
 bool Packet::getDoFragment() {
     //TODO
+}
+
+unsigned int Packet::getSourceIp() {
+    return ntohl(getIpHeader()->saddr);
+}
+
+unsigned int Packet::getDestinationIp() {
+    return ntohl(getIpHeader()->daddr);
+}
+
+void Packet::setSourceIp(unsigned int addr) {
+    getIpHeader()->saddr = htonl(addr);
+}
+
+void Packet::setDestination(unsigned int addr) {
+    getIpHeader()->daddr = htonl(addr);
 }
 
 

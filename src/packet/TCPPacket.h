@@ -14,7 +14,7 @@
 #include "../Include.h"
 #include "Packet.h"
 
-class TCPPacket : public Packet{
+class TCPPacket : public Packet {
 public:
 
     explicit TCPPacket(unsigned int size);
@@ -24,7 +24,6 @@ public:
     inline void setSource(sockaddr_in &src);
 
     inline void setDestination(sockaddr_in &dest);
-
 
 
     inline void setSequenceNumber(unsigned int seq);
@@ -47,7 +46,11 @@ public:
 
     inline void setWindowSize(unsigned short size);
 
+    inline void setWindowScale(unsigned char shift);
+
     inline void setWindowSize(unsigned short window, unsigned char shift);
+
+    inline void setMSS(unsigned short size);
 
     void setOption(unsigned char kind, unsigned char len, unsigned char *payload);
 
@@ -60,7 +63,6 @@ public:
     inline bool isFrom(sockaddr_in &src);
 
     inline bool isTo(sockaddr_in &dest);
-
 
     inline unsigned int getSequenceNumber();
 
@@ -82,25 +84,43 @@ public:
 
     inline unsigned short getWindowSize();
 
-    inline unsigned char getWindowScale();
+    inline unsigned char getWindowShift();
+
+    inline unsigned short getMSS();
 
     unsigned char getOption(unsigned char kind, unsigned char *data, unsigned char len);
 
-    inline unsigned int appendData(char* data, unsigned int len);
+    inline unsigned int appendData(char *data, unsigned int len);
 
     inline void clearData();
 
+    inline unsigned int getDataLength();
+
     inline unsigned int available() const;
+
+    inline unsigned int copyDataTo(unsigned char *buff, unsigned int len);
+
+
+    inline void makeSyn(unsigned int seq, unsigned int ack);
+
+    inline void makeResetSeq(unsigned int seq);
+
+    inline void makeResetAck(unsigned int ack);
+
+    inline void makeFin(unsigned int seq, unsigned int ack);
+
+    void makeNormal(unsigned int seqNo, unsigned int ackSeq);
+
+    inline void swapEnds();
+
+    unsigned int getSegmentLength();
 
 private:
 
     unsigned int optionsLength = 0;
 
-    inline void setFlag(unsigned int offset, bool val);
 
     inline tcphdr *getTcpHeader();
-
-
 
 };
 

@@ -20,6 +20,15 @@ public:
 
     inline bool getDoFragment();
 
+    inline unsigned int getSourceIp();
+
+    inline unsigned int getDestinationIp();
+
+    inline void setSourceIp(unsigned int addr);
+
+    inline void setDestination(unsigned int addr);
+
+
 protected:
     unsigned char *buffer = nullptr;
     unsigned int maxSize = 0;

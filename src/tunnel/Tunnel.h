@@ -15,6 +15,8 @@ public:
 
     void readPacket(Packet &packet);
 
+    inline int getFd();
+
 private:
 private:
     int fd;

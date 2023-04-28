@@ -16,14 +16,14 @@
 #include <unistd.h>
 #include <cstring>
 #include <ctime>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
 #include <cmath>
 #include <fcntl.h>
 #include <random>
+#include <string>
+#include "error/Error.h"
+#include "mutex"
 
+#define STRICT_MODE
 #ifdef _WIN32
 //#define WIN32_LEAN_AND_MEAN
 //#include <windows.h>
@@ -33,15 +33,30 @@
 #define CLOSE closesocket
 #else
 
-#include <sys/socket.h>
 #include <netinet/in.h>
+#include <netinet/ip.h>
+#include <netinet/tcp.h>
+#include <sys/socket.h>
+#include <sys/types.h>
 #include <arpa/inet.h>
+#include <netdb.h>
 
 #define CLOSE close
 #endif
 
-void exitWithError(char *tag) {
-    perror(tag);
+using namespace std;
+
+void printError(const char *tag, int errNo) {
+    cout << tag << " with error no: " << " and error name: " <<
+         getErrorName(errno) << ": " << ::strerror(errNo) << endl;
+}
+
+void printError(const char *tag) {
+    printError(tag, errno);
+}
+
+inline void exitWithError(const char *tag) {
+    printError(tag);
     exit(errno);
 }
 

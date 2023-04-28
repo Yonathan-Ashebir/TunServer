@@ -3,3 +3,5 @@
 //
 
 #include "Tunnel.h"
+
+int Tunnel::getFd() { return fd; }
