@@ -162,8 +162,7 @@ void measureConnectTime() {
         measureConnectTimeAddr = *(sockaddr_in *) info->ai_addr;
     };
     measureElapsedTime(call);
-//    inet_pton(AF_INET, "192.168.1.1", &measureConnectTimeAddr.sin_addr.s_addr);
-    measureConnectTimeAddr.sin_port = htons(55557);
+//    measureConnectTimeAddr.sin_port = htons(55557);
     char c;
     cin >> c;
     measureElapsedTime([] {
@@ -190,6 +189,36 @@ void measureConnectTime() {
     });
 }
 
+void testSocketIO() {
+    sockaddr_in addr;
+    inet_pton(AF_INET, "192.168.1.1", &addr.sin_addr.s_addr);
+    addr.sin_port = htons(80);
+    addr.sin_family = AF_INET;
+
+    int sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+    if (sock < 0)exitWithError("Could not create socket");
+    connect(sock, (sockaddr *) &addr, sizeof addr);
+    errno = 0;
+    sleep(1);
+    if (connect(sock, (sockaddr *) &addr, sizeof addr) == -1) {
+        exitWithError("Could not connect");
+    } else {
+        ::printf("Connected Successfully\n");
+    }
+    char *buf = "GET / HTTP/1.0\r\n\r\n";
+    size_t total = send(sock, buf, 0, 0);
+    printError("After send");
+    cout << "Total: " << total << endl;
+    errno = 0;
+
+
+    total = send(sock, buf, sizeof(buf), 0);
+    printError("After send");
+    ::printf("Total: %zu\n",total);
+    errno = 0;
+    cout << endl;
+
+}
 
 void testRawTypeSize() {
     printf("Size of char: %lu\n", sizeof(char));
@@ -204,9 +233,7 @@ void testRawTypeSize() {
 }
 
 int main() {
-    auto timePoint = chrono::steady_clock::now();
-
-    cout << sizeof(timePoint) << endl;
+    testSocketIO();
 }
 
 #pragma clang diagnostic pop

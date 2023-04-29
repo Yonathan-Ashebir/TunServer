@@ -47,8 +47,8 @@
 using namespace std;
 
 void printError(const char *tag, int errNo) {
-    cout << tag << " with error no: " << " and error name: " <<
-         getErrorName(errno) << ": " << ::strerror(errNo) << endl;
+    ::printf("%s with error no: %d, error name: %s, desc: %s\n", tag, errNo,
+             getErrorName(errno), ::strerror(errNo));
 }
 
 void printError(const char *tag) {

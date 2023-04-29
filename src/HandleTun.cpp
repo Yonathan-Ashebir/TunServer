@@ -238,5 +238,5 @@ void handleClientsToServers(Tunnel tunnel, connection *connections[], unsigned i
 
 }
 
-//loops: send to client, delayed ack, flush to server before close, trim connections
+//loops: send to client, delayed ack, flush to server before closeConnection, trim connections
 //simultaneous ...

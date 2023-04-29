@@ -90,7 +90,7 @@ public:
 
     unsigned char getOption(unsigned char kind, unsigned char *data, unsigned char len);
 
-    inline unsigned int appendData(char *data, unsigned int len);
+    inline unsigned int appendData(unsigned char *data, unsigned int len);
 
     inline void clearData();
 

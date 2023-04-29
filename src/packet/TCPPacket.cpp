@@ -332,7 +332,7 @@ unsigned short TCPPacket::getMSS() {
     return ntohs(result);
 }
 
-unsigned int TCPPacket::appendData(char *data, unsigned int len) {
+unsigned int TCPPacket::appendData(unsigned char *data, unsigned int len) {
     unsigned int total = min(len, maxSize - length);
     memcpy(buffer + length, data, total);
     return total;

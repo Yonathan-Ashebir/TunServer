@@ -7,6 +7,17 @@
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 
+TCPConnection::TCPConnection(Tunnel &tunnel, fd_set *rcv, fd_set *snd, fd_set *err) : tunnel(tunnel) {
+    if (!(rcv && snd && err))throw invalid_argument("Null set is not allowed");
+    receiveSet = rcv;
+    sendSet = snd;
+    errorSet = err;
+}
+
+TCPConnection::states TCPConnection::getState() {
+    return state;
+}
+
 int createTcpSocket() {
     int result = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);//warn: might not work on windows
     return result;
@@ -45,12 +56,20 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
                 if (res != 0 && res != EAGAIN && res != EINPROGRESS && res != EALREADY && res != EISCONN) {
                     sendReset();
                 } else {
+                    //re-establish
                     fd = sock;
-                    sendSequence = sendUnacknowledged = sendNext = generateSequenceNo();
+                    sendNewDataSequence = sendSequence = sendUnacknowledged = sendNext = generateSequenceNo();
                     receiveSequence = receiveUser = receiveNext = packet.getSequenceNumber() + 1;
                     sendWindow = packet.getWindowSize();
                     windowShift = packet.getWindowShift();
                     mss = packet.getMSS();
+                    clientReadFinished = false;
+                    serverReadFinished = false;
+                    lastAcknowledgeSequence = 0;
+                    retryCount = 0;
+                    auto now = chrono::steady_clock::now();
+                    lastSendTime = lastAcknowledgmentSent = lastTimeAcknowledgmentAccepted = now;
+
 
                     const unsigned int newLen = (65535 << windowShift) * SEND_WINDOW_SCALE;
                     if (!sendBuffer || sendLength < newLen) {
@@ -96,7 +115,7 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
                 unsigned int seq = packet.getSequenceNumber();
                 if (seq >= receiveNext &&
                     seq < receiveNext + (getReceiveAvailable()))
-                    close();
+                    closeConnection();
             }
         }
 
@@ -112,87 +131,57 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
 #ifdef STRICT_MODE
                         if (ack != sendUnacknowledged + 1)exitWithError("Unexpected ack segment");
 #endif
-                        sendSequence = ack;
-                        sendUnacknowledged = ack;
-                        sendNext = ack;
+                        sendSequence = sendUnacknowledged = sendNewDataSequence = sendNext = ack;
+                        auto now = chrono::steady_clock::now();
+                        rtt = lastAcknowledgmentSent - now;
+                        lastTimeAcknowledgmentAccepted = now;
                         state = ESTABLISHED; //todo: Another state change
                     } else sendReset();
                     break;
                 }
                 case ESTABLISHED: {
                     if (seq == receiveNext) {
-                        unsigned int len = packet.getDataLength();
-                        unsigned int available = getReceiveAvailable();
+                        if (!clientReadFinished) {
+                            //If did not receive fin
+                            unsigned int len = packet.getDataLength();
+                            unsigned int available = getReceiveAvailable();
 
-                        if (len > available) {
-                            flushDataToServer();
-                            trimReceiveBuffer();
+                            if (len > available) {
+                                flushDataToServer(packet);
+                                _trimReceiveBuffer();
+                            }
+                            available = getReceiveAvailable();
+                            unsigned int total = packet.copyDataTo(receiveBuffer + receiveNext, available);
+                            receiveNext += total;
+
+                            if (packet.isFin() && total == len) {
+                                //Process fin
+                                receiveNext++;
+                                clientReadFinished = true;//todo: state modifier here too
+                            }
+                            //Flush data
+                            flushDataToServer(packet);
                         }
-                        available = getReceiveAvailable();
-                        unsigned int total = packet.copyDataTo(receiveBuffer + receiveNext, available);
-                        receiveNext += total;
 
-                        flushDataToServer();
+                        //Accept ack anyway
                         sendUnacknowledged = max(sendUnacknowledged, ack);
-                        if (packet.isFin() && total == len) {
-                            receiveNext++;
-                            state = CLOSE_WAIT;//todo: state modifier here too
+                        auto now = chrono::steady_clock::now();
+                        auto d = lastTimeAcknowledgmentAccepted - now;
+                        if (d < rtt / 2)lastSendTime += d;
+                        lastTimeAcknowledgmentAccepted = now;
+                        retryCount = 0;
 
+                        //Both might be complete now
+                        if (isUpStreamComplete() && isDownStreamComplete())closeConnection();
+                        else {
+                            //If they are not complete
+                            trimSendBuffer();
+                            acknowledgeDelayed(packet);
                         }
-                        acknowledgeDelayed(packet);
+
                     } else {
                         sendAck();
                     }
-                }
-                case CLOSE_WAIT: {
-                    if (seq == receiveNext && packet.getDataLength() == 0) {
-                        sendUnacknowledged = max(sendUnacknowledged, ack);
-                    } else sendAck();
-                    break;
-                }
-                case LAST_ACK: {
-                    if (seq == receiveNext && packet.getDataLength() == 0) {
-                        sendUnacknowledged = max(sendUnacknowledged, ack);
-                        if (sendUnacknowledged == sendNext && receiveUser == receiveNext)close();
-                    } else sendAck();
-                    break;
-                }
-                case FIN_WAIT1:
-                case FIN_WAIT2: {
-                    if (seq == receiveNext) {
-                        unsigned int len = packet.getDataLength();
-                        unsigned int available = getReceiveAvailable();
-
-                        if (len > available) {
-                            flushDataToServer();
-                            trimReceiveBuffer();
-                        }
-                        available = getReceiveAvailable();
-                        unsigned int total = packet.copyDataTo(receiveBuffer + receiveNext, available);
-                        receiveNext += total;
-
-                        flushDataToServer();
-                        sendUnacknowledged = max(sendUnacknowledged, ack);
-                        if (sendUnacknowledged == sendNext) {
-                            state = FIN_WAIT2;//todo: state modifier here too
-                        }
-                        if (packet.isFin() && total == len) {
-                            receiveNext++;
-                            if (state == FIN_WAIT2) {
-                                sendAck();
-                            } else {
-                                state = CLOSING;
-                            }
-                        }
-                        acknowledgeDelayed(packet);
-                    } else sendAck();
-                    break;
-                }
-                case CLOSING: {
-                    if (seq == receiveNext) {
-                        sendUnacknowledged = max(sendUnacknowledged, ack);
-                        if (sendUnacknowledged == sendNext && receiveUser == receiveNext)close();
-                    } else sendAck();
                     break;
                 }
                 default:
@@ -203,18 +192,109 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
 
 }
 
-TCPConnection::states TCPConnection::getState() {
-    return state;
+void TCPConnection::receiveFromServer(TCPPacket &packet) {
+    //Only matter if state == ESTABLISHED
+    if (state != ESTABLISHED)return;
+    trimSendBuffer();
+    size_t total = read(fd, sendBuffer + sendNewDataSequence - sendSequence, getSendAvailable());
+    if (total > 0) {
+        //Advance next read point
+        sendNewDataSequence += total;
+    } else if (total == 0 || (errno != EWOULDBLOCK && errno != EAGAIN)) {
+        //All data has been received from server or assume so !!!
+        if (!serverReadFinished) {
+            sendNewDataSequence++;
+            serverReadFinished = true;
+        }
+    }
+
+    flushDataToClient(packet);
 }
 
-TCPConnection::TCPConnection(Tunnel &tunnel, fd_set *rcv, fd_set *snd, fd_set *err) : tunnel(tunnel) {
-    if (!(rcv && snd && err))throw invalid_argument("Null set is not allowed");
-    receiveSet = rcv;
-    sendSet = snd;
-    errorSet = err;
+//Info: flush calls often should trim buffers, close the connection (or parts of it), handle data never flushed to node case (e.g. by using RESET packets);
+void TCPConnection::flushDataToServer(TCPPacket &packet) {
+    if (state != ESTABLISHED)return;
+
+    if (clientReadFinished && receiveUser == receiveNext - 1) {
+        receiveUser++;
+        if (isDownStreamComplete())closeConnection();
+        else if (canSendToServer()) shutdown(fd, SHUT_WR);
+    } else {
+        auto amt = receiveNext - receiveUser - (clientReadFinished ? 1 : 0);
+        if (amt > 0) {
+            size_t total = send(fd, receiveBuffer + receiveUser - receiveSequence, amt, 0);
+            if (total > 0) {
+                receiveUser += total;
+                if (clientReadFinished && receiveUser == receiveNext - 1) {
+                    receiveUser++;
+                    if (isDownStreamComplete())closeConnection();
+                    else if (canSendToServer()) shutdown(fd, SHUT_WR);
+                } else if (!clientReadFinished)
+                    trimReceiveBuffer();
+            } else if (total == 0 || (errno != EWOULDBLOCK && errno != EAGAIN)) {
+                //Socket's write terminated early
+                if (total != 0 && (errno != EWOULDBLOCK && errno != EAGAIN))
+                    printError("Error writing to server");
+                else
+                    printError("Early terminated socket's write");
+                packet.setEnds(destination, source);
+                packet.makeResetSeq(sendNext);
+                tunnel.writePacket(packet);
+                closeConnection();
+            }
+        }
+    }
 }
 
-void TCPConnection::close() {
+
+void TCPConnection::flushDataToClient(TCPPacket &packet) {
+    if (state != ESTABLISHED)return;
+    auto now = chrono::steady_clock::now();
+
+
+    if (now - lastSendTime > rtt) {
+        if (retryCount == SEND_MAX_RETRIES) {
+            closeConnection();
+            return;
+        }
+        auto amt = sendNewDataSequence - sendNext;
+        if (amt == 0)return;
+        for (auto seq = sendUnacknowledged; seq < sendNewDataSequence;) {
+            packet.setEnds(destination, source);
+            packet.makeNormal(seq, receiveNext);
+            auto len = min(sendNewDataSequence - seq, (unsigned int) mss);
+            packet.clearData();
+            packet.appendData(sendBuffer + seq - sendSequence, len);
+            tunnel.writePacket(packet);
+            seq += len;
+        }
+        sendNext = sendNewDataSequence;
+        lastTimeAcknowledgmentAccepted = lastSendTime = now;
+        retryCount++;
+    } else {
+        auto amt = sendNewDataSequence - sendNext;
+        if (amt < mss / 2)return;
+        for (auto seq = sendNext; seq < sendNewDataSequence;) {
+            packet.setEnds(destination, source);
+            packet.makeNormal(seq, receiveNext);
+            auto len = min(sendNewDataSequence - seq, (unsigned int) mss);
+            packet.clearData();
+            packet.appendData(sendBuffer + seq - sendSequence, len);
+            tunnel.writePacket(packet);
+            seq += len;
+        }
+        sendNext = sendNewDataSequence;
+    }
+    if (isDownStreamComplete() && isUpStreamComplete())closeConnection();
+    else {
+        acknowledgeDelayed(packet);
+    }
+
+
+}
+
+
+void TCPConnection::closeConnection() {
     //todo: might affect opposite stream
     FD_CLR(fd, receiveSet);
     FD_CLR(fd, sendSet);
@@ -222,42 +302,62 @@ void TCPConnection::close() {
     ::close(fd);
 }
 
-
 constexpr unsigned int TCPConnection::getReceiveAvailable() const {
     return RECEIVE_BUFFER_SIZE - receiveNext + receiveSequence;
 }
 
 void TCPConnection::acknowledgeDelayed(TCPPacket &packet) {
     auto now = chrono::steady_clock::now();
-    if (chrono::duration_cast<chrono::milliseconds>(now - lastAcknowledgeTime).count() > ACKNOWLEDGE_DELAY ||
+    if (chrono::duration_cast<chrono::milliseconds>(now - lastAcknowledgmentSent).count() > ACKNOWLEDGE_DELAY ||
         receiveNext - lastAcknowledgeSequence > mss * 2) {
         packet.setEnds(destination, source);
         packet.clearData();
         packet.makeNormal(sendNext, receiveNext);
         tunnel.writePacket(packet);
-        lastAcknowledgeTime = now;
+        lastAcknowledgmentSent = now;
         lastAcknowledgeSequence = receiveNext;
     }
 }
 
-void TCPConnection::closeUpStream() {
-    shutdown(fd, SHUT_WR);
-}
-
-bool TCPConnection::isUpStreamOpen() {
+bool TCPConnection::canSendToServer() const {
     char buf;
     size_t res = send(fd, &buf, 0, 0);
     return res == 0;
 }
 
-bool TCPConnection::isDownStreamOpen() {
+bool TCPConnection::canReceiveFromServer() const {
     char buf;
     size_t res = read(fd, &buf, 0);
     return res == 0;
 }
 
-void TCPConnection::receiveFromServer(TCPConnection &packet) {
+constexpr unsigned int TCPConnection::getSendAvailable() const {
+    return sendLength - sendNewDataSequence + sendSequence;
+}
 
+constexpr bool TCPConnection::isUpStreamComplete() const {
+    return clientReadFinished && receiveUser >= receiveNext - 1;
+}
+
+constexpr bool TCPConnection::isDownStreamComplete() const {
+    return serverReadFinished && sendUnacknowledged == sendNewDataSequence;
+}
+
+void TCPConnection::trimReceiveBuffer() {
+    if (receiveUser - receiveSequence < mss)return;
+    _trimReceiveBuffer();
+}
+
+void TCPConnection::_trimReceiveBuffer() {
+    if (receiveUser == receiveSequence)return;
+    unsigned int amt = receiveUser - receiveSequence;
+    shiftElements(receiveBuffer + amt, receiveNext - receiveUser, -(int) amt);
+}
+
+void TCPConnection::trimSendBuffer() {
+    auto amt = sendUnacknowledged - sendSequence;
+    if (amt < mss)return;
+    shiftElements(sendBuffer + amt, sendNewDataSequence - sendUnacknowledged, -(int) amt);
 }
 
 
