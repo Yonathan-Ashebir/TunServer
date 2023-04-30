@@ -15,8 +15,9 @@ TCPConnection::TCPConnection(Tunnel &tunnel, int &maxFd, fd_set *rcv, fd_set *sn
     errorSet = err;
 }
 
-TCPConnection::states TCPConnection::getState() {
-    return state;
+TCPConnection::~TCPConnection() {
+    delete sendBuffer;
+    ::printf("Connection destroyed");
 }
 
 int createTcpSocket() {
@@ -214,6 +215,7 @@ void TCPConnection::receiveFromServer(TCPPacket &packet) {
     flushDataToClient(packet);
 }
 
+
 //Info: flush calls often should trim buffers, close the connection (or parts of it), handle data never flushed to node case (e.g. by using RESET packets);
 void TCPConnection::flushDataToServer(TCPPacket &packet) {
     if (state != ESTABLISHED)return;
@@ -294,86 +296,6 @@ void TCPConnection::flushDataToClient(TCPPacket &packet) {
     }
 
 
-}
-
-
-void TCPConnection::closeConnection() {
-    //todo: might affect opposite stream
-    FD_CLR(fd, receiveSet);
-    FD_CLR(fd, sendSet);
-    FD_CLR(fd, errorSet);
-    ::close(fd);
-}
-
-constexpr unsigned int TCPConnection::getReceiveAvailable() const {
-    return RECEIVE_BUFFER_SIZE - receiveNext + receiveSequence;
-}
-
-void TCPConnection::acknowledgeDelayed(TCPPacket &packet) {
-    auto now = chrono::steady_clock::now();
-    if (chrono::duration_cast<chrono::milliseconds>(now - lastAcknowledgmentSent).count() > ACKNOWLEDGE_DELAY ||
-        receiveNext - lastAcknowledgeSequence > mss * 2) {
-        packet.setEnds(destination, source);
-        packet.clearData();
-        packet.makeNormal(sendNext, receiveNext);
-        tunnel.writePacket(packet);
-        lastAcknowledgmentSent = now;
-        lastAcknowledgeSequence = receiveNext;
-    }
-}
-
-bool TCPConnection::canSendToServer() const {
-    char buf;
-    size_t res = send(fd, &buf, 0, 0);
-    return res == 0;
-}
-
-bool TCPConnection::canReceiveFromServer() const {
-    char buf;
-    size_t res = read(fd, &buf, 0);
-    return res == 0;
-}
-
-constexpr unsigned int TCPConnection::getSendAvailable() const {
-    return sendLength - sendNewDataSequence + sendSequence;
-}
-
-constexpr bool TCPConnection::isUpStreamComplete() const {
-    return clientReadFinished && receiveUser >= receiveNext - 1;
-}
-
-constexpr bool TCPConnection::isDownStreamComplete() const {
-    return serverReadFinished && sendUnacknowledged == sendNewDataSequence;
-}
-
-void TCPConnection::trimReceiveBuffer() {
-    if (receiveUser - receiveSequence < mss)return;
-    _trimReceiveBuffer();
-}
-
-void TCPConnection::_trimReceiveBuffer() {
-    if (receiveUser == receiveSequence)return;
-    unsigned int amt = receiveUser - receiveSequence;
-    shiftElements(receiveBuffer + amt, receiveNext - receiveUser, -(int) amt);
-}
-
-void TCPConnection::trimSendBuffer() {
-    auto amt = sendUnacknowledged - sendSequence;
-    if (amt < mss)return;
-    shiftElements(sendBuffer + amt, sendNewDataSequence - sendUnacknowledged, -(int) amt);
-}
-
-bool TCPConnection::canHandle(TCPPacket &packet) {
-    return packet.isFrom(source);
-}
-
-constexpr int TCPConnection::getFd() const {
-    return fd;
-}
-
-TCPConnection::~TCPConnection() {
-    delete sendBuffer;
-    ::printf("Connection destroyed");
 }
 
 

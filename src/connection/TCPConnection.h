@@ -9,6 +9,7 @@
 #define TUNSERVER_TCPCONNECTION_H
 
 #pragma once
+
 #include "../Include.h"
 #include "../packet/TCPPacket.h"
 #include "../tunnel/Tunnel.h"
@@ -41,18 +42,19 @@ public:
 
     ~TCPConnection();
 
-    states getState();
+    inline states getState();
 
-    constexpr int getFd() const;
-    bool canHandle(TCPPacket &packet);
+    inline int getFd() const;
+
+    inline bool canHandle(TCPPacket &packet);
 
     void receiveFromClient(TCPPacket &);
 
     void receiveFromServer(TCPPacket &);
 
-    inline void flushDataToServer(TCPPacket &);
+    void flushDataToServer(TCPPacket &);
 
-    inline void flushDataToClient(TCPPacket &);
+    void flushDataToClient(TCPPacket &);
 
 private:
     states state = CLOSED;
@@ -93,13 +95,13 @@ private:
 
     inline void closeConnection();
 
-    constexpr unsigned int getReceiveAvailable() const;
+    inline unsigned int getReceiveAvailable() const;
 
-    constexpr unsigned int getSendAvailable() const;
+    inline unsigned int getSendAvailable() const;
 
-    constexpr bool isUpStreamComplete() const;
+    inline bool isUpStreamComplete() const;
 
-    constexpr bool isDownStreamComplete() const;
+    inline bool isDownStreamComplete() const;
 
     inline bool canSendToServer() const;
 
@@ -113,6 +115,96 @@ private:
 
     inline void acknowledgeDelayed(TCPPacket &packet);
 };
+
+TCPConnection::states TCPConnection::getState() {
+    return state;
+}
+
+void TCPConnection::closeConnection() {
+    //todo: might affect opposite stream
+    FD_CLR(fd, receiveSet);
+    FD_CLR(fd, sendSet);
+    FD_CLR(fd, errorSet);
+    ::close(fd);
+}
+
+unsigned int TCPConnection::getReceiveAvailable() const {
+    return RECEIVE_BUFFER_SIZE - receiveNext + receiveSequence;
+}
+
+void TCPConnection::acknowledgeDelayed(TCPPacket &packet) {
+    auto now = chrono::steady_clock::now();
+    if (chrono::duration_cast<chrono::milliseconds>(now - lastAcknowledgmentSent).count() > ACKNOWLEDGE_DELAY ||
+        receiveNext - lastAcknowledgeSequence > mss * 2) {
+        packet.setEnds(destination, source);
+        packet.clearData();
+        packet.makeNormal(sendNext, receiveNext);
+        tunnel.writePacket(packet);
+        lastAcknowledgmentSent = now;
+        lastAcknowledgeSequence = receiveNext;
+    }
+}
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "readability-convert-member-functions-to-static"
+
+bool TCPConnection::canSendToServer() const {
+//    char buf;
+//    size_t res = send(fd, &buf, 0, 0);
+//    return res == 0;
+    return true;
+}
+
+#pragma clang diagnostic pop
+
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "readability-convert-member-functions-to-static"
+
+bool TCPConnection::canReceiveFromServer() const {
+//    char buf;
+//    size_t res = read(fd, &buf, 0);
+//    return res == 0;
+    return true;
+}
+
+#pragma clang diagnostic pop
+
+unsigned int TCPConnection::getSendAvailable() const {
+    return sendLength - sendNewDataSequence + sendSequence;
+}
+
+bool TCPConnection::isUpStreamComplete() const {
+    return clientReadFinished && receiveUser >= receiveNext - 1;
+}
+
+bool TCPConnection::isDownStreamComplete() const {
+    return serverReadFinished && sendUnacknowledged == sendNewDataSequence;
+}
+
+void TCPConnection::trimReceiveBuffer() {
+    if (receiveUser - receiveSequence < mss)return;
+    _trimReceiveBuffer();
+}
+
+void TCPConnection::_trimReceiveBuffer() {
+    if (receiveUser == receiveSequence)return;
+    unsigned int amt = receiveUser - receiveSequence;
+    shiftElements(receiveBuffer + amt, receiveNext - receiveUser, -(int) amt);
+}
+
+void TCPConnection::trimSendBuffer() {
+    auto amt = sendUnacknowledged - sendSequence;
+    if (amt < mss)return;
+    shiftElements(sendBuffer + amt, sendNewDataSequence - sendUnacknowledged, -(int) amt);
+}
+
+bool TCPConnection::canHandle(TCPPacket &packet) {
+    return packet.isFrom(source);
+}
+
+int TCPConnection::getFd() const {
+    return fd;
+}
 
 
 #endif //TUNSERVER_TCPCONNECTION_H

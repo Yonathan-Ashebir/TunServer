@@ -1,6 +1,6 @@
 
 #include "../Include.h"
-#include "../connection/TCPConnection.h"
+#include "../tunnel/DatagramTunnel.h"
 
 using namespace std;
 
@@ -14,8 +14,9 @@ int main() {
     printCharSizeCPP();
 
     int tunnelFd = socket(AF_INET, SOCK_DGRAM, 0);
+
     if (tunnelFd < 0)exitWithError("Could not create tunnel");
-    Tunnel tunnel(tunnelFd);
+    DatagramTunnel tunnel(tunnelFd);
 
 }
 

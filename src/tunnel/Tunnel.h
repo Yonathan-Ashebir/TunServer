@@ -10,20 +10,24 @@
 
 class Tunnel {
 public:
-    explicit Tunnel(int fd);
+    inline explicit Tunnel(int fd) : fd(fd) {}
 
-    virtual bool writePacket(Packet &packet);
+    virtual bool writePacket(Packet &packet) = 0;
 
-    virtual bool readPacket(Packet &packet);
+    virtual bool readPacket(Packet &packet) = 0;
 
-    inline int getFileDescriptor() const;
+    inline int getFileDescriptor() const { return fd; }
 
 
 protected:
-    unsigned char *getDataBuffer(Packet &packet);
+    inline static unsigned char *getDataBuffer(Packet &packet);
     int fd;
 
 };
+
+unsigned char *Tunnel::getDataBuffer(Packet &packet) {
+    return packet.buffer;
+}
 
 
 #endif //TUNSERVER_TUNNEL_H

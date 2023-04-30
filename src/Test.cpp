@@ -3,7 +3,6 @@
 //
 #include <mutex>
 #include "Include.h"
-#include "Include.h"
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
@@ -20,7 +19,7 @@ void sizeOfArrayAndElement() {
     printf("Arr size: %lu and its element: %lu\n", sizeof(arr), sizeof(el));
 }
 
-struct boolArray {
+struct __attribute__((unused)) boolArray {
     bool a;
     bool b;
     bool c;
@@ -79,7 +78,7 @@ void sizeAfterCastTest() {
     unsigned short s = UINT16_MAX - 1 + a;
     unsigned int b = s - a;
     cout << "Before: " << s << endl;
-    cout << "With out casting: " << (s << 1) << endl;
+    cout << "Without casting: " << (s << 1) << endl;
     cout << "After: " << ((int) s << 1) << endl;
     cout << "a: " << a << endl;
     cout << "b: " << b << endl;
@@ -92,7 +91,7 @@ struct BitStruct {
 
 void overflowAssignmentTest() {
     BitStruct bits;
-    bits.a = 2; //under stand from the warning !!!
+    bits.a = 2; //understand from the warning !!!
     unsigned short s = 65536;// do the same
 }
 
@@ -242,8 +241,32 @@ void testRawTypeSize() {
 //void Friend::fun() {};
 //};
 
-int main() {
+enum class testEnum {
+    enumA, enumB
+};
 
+void testSelfIncludingClass() {
+    class Recur {
+    public:
+        Recur() {
+            printf("Recur constructor called\n");
+        }
+
+        int a{};
+//        Recur r1;
+        Recur *r2 = new Recur;
+    };
+    Recur recur;
+};
+
+void UDPSocketTest(){
+    int sock1 = socket(AF_INET,SOCK_DGRAM,0);
+    ls;
+    int sock2 = socket(AF_INET,SOCK_DGRAM,0);
 }
-
+int main() {
+//    testSelfIncludingClass();
+    ::printf("Hello");
+}
+xzc;
 #pragma clang diagnostic pop

@@ -4,7 +4,6 @@
 
 #ifndef TUNSERVER_HANDLER_H
 #define TUNSERVER_HANDLER_H
-#pragma once
 
 #include "../connection/TCPConnection.h"
 

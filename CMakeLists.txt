@@ -6,9 +6,9 @@ set(CMAKE_CXX_STANDARD 14)
 add_executable(TunServer
         src/handler/Main.cpp
         src/connection/TCPConnection.cpp
+        src/tunnel/DatagramTunnel.cpp
         src/handler/Handler.cpp
-        src/packet/Packet.cpp
         src/packet/TCPPacket.cpp
-        src/tunnel/Tunnel.cpp)
+        src/error/Error.cpp)
 
-add_executable(test src/Test.cpp)
+add_executable(test src/error/Error.cpp src/Test.cpp src/blah.cpp)

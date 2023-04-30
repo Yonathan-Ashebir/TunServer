@@ -5,10 +5,10 @@
 #ifndef TUNSERVER_INCLUDE_H
 #define TUNSERVER_INCLUDE_H
 
-#endif //TUNSERVER_INCLUDE_H
 #pragma once
 
 #include <strings.h>
+
 #include <cstdio>
 #include <unistd.h>
 #include <ctime>
@@ -26,16 +26,18 @@
 #include <thread>
 
 #define STRICT_MODE
+
 #ifdef _WIN32
 //#define WIN32_LEAN_AND_MEAN
 //#include <windows.h>
 #define bzero(b,len) (memset((b), '\0', (len)), (void) 0)
 #include <winsock2.h>
-
 #define CLOSE closesocket
+
 #else
 
 #include <netinet/in.h>
+
 #include <netinet/ip.h>
 #include <netinet/tcp.h>
 #include <sys/socket.h>
@@ -44,16 +46,19 @@
 #include <netdb.h>
 
 #define CLOSE close
+
 #endif
 
 using namespace std;
 
-void printError(const char *tag, int errNo) {
+using namespace std;
+
+inline void printError(const char *tag, int errNo) {
     ::printf("%s with error no: %d, error name: %s, desc: %s\n", tag, errNo,
              getErrorName(errno), ::strerror(errNo));
 }
 
-void printError(const char *tag) {
+inline void printError(const char *tag) {
     printError(tag, errno);
 }
 
@@ -68,7 +73,7 @@ inline void shiftElements(unsigned char *from, unsigned int len, int by) {
     memcpy(from + by, temp, len);
 }
 
-void initPlatform() {
+inline void initPlatform() {
 
 #ifdef _WIN32
     if (WSAStartup(MAKEWORD(2, 2), &wsaData) != 0) {
@@ -85,3 +90,7 @@ void initPlatform() {
     }
 #endif
 }
+
+//#include "Include.cpp"
+
+#endif //TUNSERVER_INCLUDE_H
