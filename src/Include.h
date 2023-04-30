@@ -6,6 +6,7 @@
 #define TUNSERVER_INCLUDE_H
 
 #endif //TUNSERVER_INCLUDE_H
+#pragma once
 
 #include <strings.h>
 #include <cstdio>
@@ -21,7 +22,8 @@
 #include <random>
 #include <string>
 #include "error/Error.h"
-#include "mutex"
+#include <mutex>
+#include <thread>
 
 #define STRICT_MODE
 #ifdef _WIN32

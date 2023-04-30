@@ -3,6 +3,12 @@ project(TunServer)
 
 set(CMAKE_CXX_STANDARD 14)
 
-add_executable(TunServer src/Main.cpp src/HandleTun.cpp src/HandleTun.h src/Test.cpp src/Packet.h src/Include.h src/connection/TCPConnection.cpp src/connection/TCPConnection.h)
+add_executable(TunServer
+        src/handler/Main.cpp
+        src/connection/TCPConnection.cpp
+        src/handler/Handler.cpp
+        src/packet/Packet.cpp
+        src/packet/TCPPacket.cpp
+        src/tunnel/Tunnel.cpp)
 
-add_executable(test src/Test.cpp src/error/Error.h)
+add_executable(test src/Test.cpp)

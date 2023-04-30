@@ -342,9 +342,6 @@ void TCPPacket::clearData() {
     length = OPTIONS_INDEX + optionsLength;
 }
 
-unsigned int TCPPacket::available() const {
-    return maxSize - length;
-}
 
 unsigned int TCPPacket::getDataLength() {
     return length - OPTIONS_INDEX - optionsLength;
@@ -415,5 +412,84 @@ inline unsigned int TCPPacket::getSegmentLength() {
     if (isFin())result++;
     return result;
 }
+
+struct pseudo_header {
+    u_int32_t source_address;
+    u_int32_t dest_address;
+    u_int8_t placeholder;
+    u_int8_t protocol;
+    u_int16_t tcp_length;
+};
+
+auto sum = [](const unsigned char *buf, unsigned size) {
+    unsigned sum = 0, i;
+
+    /* Accumulate checksum */
+    for (i = 0; i < size - 1; i += 2) {
+        unsigned short word16 = *(unsigned short *) &buf[i];
+        sum += word16;
+    }
+
+    /* Handle odd-sized case */
+    if (size & 1) {
+        unsigned short word16 = (unsigned char) buf[i];
+        sum += word16;
+    }
+    return sum;
+};
+
+void TCPPacket::makeValid() {
+    auto iph = getIpHeader();
+    auto tcph = getTcpHeader();
+
+    iph->check = 0;
+    tcph->check = 0;
+    iph->tot_len = htonl(length);//todo: check if htonl is necessary
+
+    unsigned int commonSum = sum(buffer + sizeof(iphdr), length - sizeof(iphdr));
+
+    pseudo_header psh{iph->saddr, iph->daddr, 0, IPPROTO_TCP, iph->tot_len};//todo: the same here
+
+    auto pshSum = sum((unsigned char *) &psh, sizeof psh);
+    auto iphSum = sum(buffer, sizeof(iphdr));
+
+    unsigned int tempSum = iphSum + commonSum;
+    iph->check = ~((tempSum & 0xFFFF) + (tempSum >> 16));
+
+    tempSum = pshSum + commonSum;
+    tcph->check = ~((tempSum & 0xFFFF) + (tempSum >> 16));
+}
+
+bool TCPPacket::checkValidity() {
+    auto iph = getIpHeader();
+    auto tcph = getTcpHeader();
+
+    unsigned short oldIpCheckSum = iph->check;
+    unsigned short oldTcpCheckSum = tcph->check;
+
+    iph->check = 0;
+    tcph->check = 0;//todo: check if htonl is necessary
+
+    unsigned int commonSum = sum(buffer + sizeof(iphdr), length - sizeof(iphdr));
+
+    pseudo_header psh{iph->saddr, iph->daddr, 0, IPPROTO_TCP, iph->tot_len};//todo: the same here
+
+    auto pshSum = sum((unsigned char *) &psh, sizeof psh);
+    auto iphSum = sum(buffer, sizeof(iphdr));
+
+    unsigned int tempSum = iphSum + commonSum;
+    auto newIpCheckSum = ~((tempSum & 0xFFFF) + (tempSum >> 16));
+
+    tempSum = pshSum + commonSum;
+    auto newTcpCheck = ~((tempSum & 0xFFFF) + (tempSum >> 16));
+
+    iph->check = oldIpCheckSum;
+    tcph->check = oldTcpCheckSum;
+
+    return (oldTcpCheckSum == newTcpCheck && oldIpCheckSum == newIpCheckSum) &&
+           length == ntohl(iph->tot_len);//todo: the same again
+
+}
+
 
 #pragma clang diagnostic pop

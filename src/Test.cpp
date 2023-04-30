@@ -2,7 +2,8 @@
 // Created by yoni_ash on 4/15/23.
 //
 #include <mutex>
-#include "packet/TCPPacket.h"
+#include "Include.h"
+#include "Include.h"
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
@@ -214,7 +215,7 @@ void testSocketIO() {
 
     total = send(sock, buf, sizeof(buf), 0);
     printError("After send");
-    ::printf("Total: %zu\n",total);
+    ::printf("Total: %zu\n", total);
     errno = 0;
     cout << endl;
 
@@ -232,8 +233,17 @@ void testRawTypeSize() {
     printf("Size of long double: %lu\n", sizeof(long double));
 }
 
+//class Friend {
+//public:
+//   void fun();
+//};
+//
+//class Alice {
+//void Friend::fun() {};
+//};
+
 int main() {
-    testSocketIO();
+
 }
 
 #pragma clang diagnostic pop

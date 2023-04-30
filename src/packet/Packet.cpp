@@ -38,6 +38,10 @@ bool Packet::getDoFragment() {
     //TODO
 }
 
+unsigned int Packet::available() const {
+    return maxSize - length;
+}
+
 unsigned int Packet::getSourceIp() {
     return ntohl(getIpHeader()->saddr);
 }
@@ -52,6 +56,20 @@ void Packet::setSourceIp(unsigned int addr) {
 
 void Packet::setDestination(unsigned int addr) {
     getIpHeader()->daddr = htonl(addr);
+}
+
+Packet::~Packet() {
+    delete buffer;
+    ::printf("Packet destroyed");
+
+}
+
+unsigned int Packet::getMaxSize() const {
+    return maxSize;
+}
+
+unsigned int Packet::getLength() {
+    return length;
 }
 
 

@@ -4,6 +4,7 @@
 
 #ifndef TUNSERVER_TUNNEL_H
 #define TUNSERVER_TUNNEL_H
+#pragma once
 
 #include "../packet/TCPPacket.h"
 
@@ -11,15 +12,17 @@ class Tunnel {
 public:
     explicit Tunnel(int fd);
 
-    void writePacket(Packet &packet);
+    virtual bool writePacket(Packet &packet);
 
-    void readPacket(Packet &packet);
+    virtual bool readPacket(Packet &packet);
 
-    inline int getFd();
+    inline int getFileDescriptor() const;
 
-private:
-private:
+
+protected:
+    unsigned char *getDataBuffer(Packet &packet);
     int fd;
+
 };
 
 

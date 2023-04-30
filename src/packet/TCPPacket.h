@@ -9,11 +9,10 @@
 #define TUNSERVER_PACKET_H
 
 
-#endif //TUNSERVER_PACKET_H
+#pragma once
 
 #include "../Include.h"
 #include "Packet.h"
-
 class TCPPacket : public Packet {
 public:
 
@@ -96,10 +95,7 @@ public:
 
     inline unsigned int getDataLength();
 
-    inline unsigned int available() const;
-
     inline unsigned int copyDataTo(unsigned char *buff, unsigned int len);
-
 
     inline void makeSyn(unsigned int seq, unsigned int ack);
 
@@ -115,6 +111,10 @@ public:
 
     unsigned int getSegmentLength();
 
+    void makeValid() override;
+
+    bool checkValidity() override;
+
 private:
 
     unsigned int optionsLength = 0;
@@ -123,5 +123,7 @@ private:
     inline tcphdr *getTcpHeader();
 
 };
+
+#endif //TUNSERVER_PACKET_H
 
 #pragma clang diagnostic pop

@@ -7,7 +7,8 @@
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 
-TCPConnection::TCPConnection(Tunnel &tunnel, fd_set *rcv, fd_set *snd, fd_set *err) : tunnel(tunnel) {
+TCPConnection::TCPConnection(Tunnel &tunnel, int &maxFd, fd_set *rcv, fd_set *snd, fd_set *err) : tunnel(tunnel),
+                                                                                                  maxFd(maxFd) {
     if (!(rcv && snd && err))throw invalid_argument("Null set is not allowed");
     receiveSet = rcv;
     sendSet = snd;
@@ -135,6 +136,8 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
                         auto now = chrono::steady_clock::now();
                         rtt = lastAcknowledgmentSent - now;
                         lastTimeAcknowledgmentAccepted = now;
+                        FD_SET(fd, receiveSet);
+                        maxFd = max(maxFd, fd);
                         state = ESTABLISHED; //todo: Another state change
                     } else sendReset();
                     break;
@@ -358,6 +361,19 @@ void TCPConnection::trimSendBuffer() {
     auto amt = sendUnacknowledged - sendSequence;
     if (amt < mss)return;
     shiftElements(sendBuffer + amt, sendNewDataSequence - sendUnacknowledged, -(int) amt);
+}
+
+bool TCPConnection::canHandle(TCPPacket &packet) {
+    return packet.isFrom(source);
+}
+
+constexpr int TCPConnection::getFd() const {
+    return fd;
+}
+
+TCPConnection::~TCPConnection() {
+    delete sendBuffer;
+    ::printf("Connection destroyed");
 }
 
 

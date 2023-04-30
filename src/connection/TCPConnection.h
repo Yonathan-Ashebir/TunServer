@@ -8,6 +8,7 @@
 #ifndef TUNSERVER_TCPCONNECTION_H
 #define TUNSERVER_TCPCONNECTION_H
 
+#pragma once
 #include "../Include.h"
 #include "../packet/TCPPacket.h"
 #include "../tunnel/Tunnel.h"
@@ -32,9 +33,18 @@ public:
     };
 
 
-    TCPConnection(Tunnel &tunnel, fd_set *rcv, fd_set *snd, fd_set *err);
+    TCPConnection(Tunnel &tunnel, int &maxFd,
+                  fd_set *rcv, fd_set
+                  *snd,
+                  fd_set *err
+    );
+
+    ~TCPConnection();
 
     states getState();
+
+    constexpr int getFd() const;
+    bool canHandle(TCPPacket &packet);
 
     void receiveFromClient(TCPPacket &);
 
@@ -49,6 +59,7 @@ private:
     bool clientReadFinished = false;
     bool serverReadFinished = false;
     int fd{};
+    int &maxFd;
 
     Tunnel &tunnel;
     mutex mtx;

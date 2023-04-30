@@ -4,4 +4,15 @@
 
 #include "Tunnel.h"
 
-int Tunnel::getFd() { return fd; }
+int Tunnel::getFileDescriptor() const { return fd; }
+
+Tunnel::Tunnel(int fd) : fd(fd) {
+
+}
+
+unsigned char *Tunnel::getDataBuffer(Packet &packet) {
+
+}
+
+
+

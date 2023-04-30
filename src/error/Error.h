@@ -5,9 +5,8 @@
 #ifndef TUNSERVER_ERROR_H
 #define TUNSERVER_ERROR_H
 
-#endif //TUNSERVER_ERROR_H
-
-#include <errno.h>
+#pragma once
+#include <cerrno>
 
 char const *getErrorName(int errno_) {
     switch (errno_) {
@@ -804,3 +803,5 @@ char const *getErrorName(int errno_) {
     }
 
 }
+
+#endif //TUNSERVER_ERROR_H
