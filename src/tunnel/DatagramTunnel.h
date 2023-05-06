@@ -23,18 +23,26 @@ public:
 };
 
 bool DatagramTunnel::writePacket(Packet &packet) {
-    auto len = packet.getMaxSize();
+    packet.validate();
     auto buffer = getDataBuffer(packet);
     auto res = send(fd, buffer, packet.getLength(), 0);
-    return res == 0;
+    if (res == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        exitWithError("Could not read a packet");
+    }
+    return res == packet.getLength();
 }
 
 bool DatagramTunnel::readPacket(Packet &packet) {
     auto len = packet.getMaxSize();
     auto buffer = getDataBuffer(packet);
     auto total = recv(fd, buffer, len, 0);
+
+    if (total == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
+        exitWithError("Could not read a packet");
+    }
+    packet.syncWithBuffer();
     if (total == len) { printError("Might have dropped something"); }
-    if (!packet.checkValidity()) return false;
+    if (!packet.isValid()) return false;
     else return true;
 }
 

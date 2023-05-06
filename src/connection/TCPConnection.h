@@ -16,7 +16,7 @@
 
 using namespace std;
 
-#define RECEIVE_BUFFER_SIZE  (unsigned int )200//should be less than PACKET_SIZE - 60
+#define RECEIVE_BUFFER_SIZE  (16*1024) //should be less than PACKET_SIZE - 60
 #define SEND_WINDOW_SCALE 2
 #define ACKNOWLEDGE_DELAY 250
 #define SEND_MAX_RETRIES 3
@@ -69,7 +69,7 @@ private:
     sockaddr_in destination{};
 
     unsigned short mss{};
-    unsigned char *sendBuffer{}; //buffer to send data to client
+    unsigned char *sendBuffer{}; //buffer to send data to a client
     unsigned int sendLength{}; //size of buffer
     unsigned int sendWindow{}; // max size of data for next segment
     unsigned char windowShift{};
@@ -79,16 +79,17 @@ private:
     unsigned int sendNewDataSequence{};
     unsigned int retryCount{};
     chrono::duration<long, ratio<1, 1000000000>> rtt{};
-    chrono::time_point<chrono::steady_clock, chrono::duration<long, ratio<1, 1000000000>>> lastSendTime{};
-    chrono::time_point<chrono::steady_clock, chrono::duration<long, ratio<1, 1000000000>>> lastTimeAcknowledgmentAccepted{};
+    chrono::time_point<chrono::steady_clock, chrono::nanoseconds> lastSendTime{};
+    chrono::time_point<chrono::steady_clock, chrono::nanoseconds> lastTimeAcknowledgmentAccepted{};
 
-    unsigned int lastAcknowledgeSequence{};
-    chrono::time_point<chrono::steady_clock, chrono::duration<long, ratio<1, 1000000000>>> lastAcknowledgmentSent{};
-    unsigned char receiveBuffer[RECEIVE_BUFFER_SIZE]{}; //buffer to collect data from client
+    unsigned int lastAcknowledgedSequence{};
+    chrono::time_point<chrono::steady_clock, chrono::nanoseconds> lastAcknowledgmentSent{};
+    unsigned char receiveBuffer[RECEIVE_BUFFER_SIZE]{}; //buffer to collect data from a client
     unsigned int receiveSequence{};
-    unsigned int receiveUser{}; //the sequence number of next data to be consumed by the user or in our case send to the application server
+    unsigned int receiveUser{}; //the sequence number of next data
+    // to be consumed by the user or in our case sends to the application server
     unsigned int receiveNext{}; //the sequence number of next expected data
-
+    unsigned int receivePushSequence{};
     fd_set *receiveSet{};
     fd_set *sendSet{};
     fd_set *errorSet{};
@@ -126,6 +127,7 @@ void TCPConnection::closeConnection() {
     FD_CLR(fd, sendSet);
     FD_CLR(fd, errorSet);
     ::close(fd);
+    state = CLOSED;
 }
 
 unsigned int TCPConnection::getReceiveAvailable() const {
@@ -133,15 +135,17 @@ unsigned int TCPConnection::getReceiveAvailable() const {
 }
 
 void TCPConnection::acknowledgeDelayed(TCPPacket &packet) {
+    if (isUpStreamComplete())return;
     auto now = chrono::steady_clock::now();
-    if (chrono::duration_cast<chrono::milliseconds>(now - lastAcknowledgmentSent).count() > ACKNOWLEDGE_DELAY ||
-        receiveNext - lastAcknowledgeSequence > mss * 2) {
+    if ((chrono::duration_cast<chrono::milliseconds>(now - lastAcknowledgmentSent).count() &&
+         lastAcknowledgedSequence != receiveNext) > ACKNOWLEDGE_DELAY ||
+        receiveNext - lastAcknowledgedSequence > mss * 2) {
         packet.setEnds(destination, source);
         packet.clearData();
         packet.makeNormal(sendNext, receiveNext);
         tunnel.writePacket(packet);
         lastAcknowledgmentSent = now;
-        lastAcknowledgeSequence = receiveNext;
+        lastAcknowledgedSequence = receiveNext;
     }
 }
 
@@ -190,12 +194,14 @@ void TCPConnection::_trimReceiveBuffer() {
     if (receiveUser == receiveSequence)return;
     unsigned int amt = receiveUser - receiveSequence;
     shiftElements(receiveBuffer + amt, receiveNext - receiveUser, -(int) amt);
+    receiveSequence = receiveNext;
 }
 
 void TCPConnection::trimSendBuffer() {
     auto amt = sendUnacknowledged - sendSequence;
     if (amt < mss)return;
     shiftElements(sendBuffer + amt, sendNewDataSequence - sendUnacknowledged, -(int) amt);
+    sendSequence = sendUnacknowledged;
 }
 
 bool TCPConnection::canHandle(TCPPacket &packet) {

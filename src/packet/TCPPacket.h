@@ -14,8 +14,6 @@
 #include "../Include.h"
 #include "Packet.h"
 
-constexpr unsigned int OPTIONS_INDEX = sizeof(iphdr) + sizeof(tcphdr);
-
 class TCPPacket : public Packet {
 public:
 
@@ -48,11 +46,11 @@ public:
 
     inline void setWindowSize(unsigned short window);
 
-    inline void setWindowScale(unsigned char shift);
+    inline void setWindowScale(unsigned char shift);//todo
 
-    inline void setWindowSize(unsigned short window, unsigned char shift);
+    inline void setWindowSize(unsigned short window, unsigned char shift);//todo
 
-    inline void setMSS(unsigned short size);
+    inline void setMSS(unsigned short size);//todo
 
     void setOption(unsigned char kind, unsigned char len, unsigned char *payload);
 
@@ -96,9 +94,9 @@ public:
 
     inline void clearData();
 
-    inline unsigned int getDataLength() const;
+    inline unsigned short getDataLength() const;
 
-    inline unsigned int copyDataTo(unsigned char *buff, unsigned int len);
+    inline unsigned short copyDataTo(unsigned char *buff, unsigned short len);
 
     inline void makeSyn(unsigned int seq, unsigned int ack);
 
@@ -114,21 +112,27 @@ public:
 
     inline unsigned int getSegmentLength() const;
 
-    void makeValid() override;
+    void validate() override;
 
-    bool checkValidity() override;
+    bool isValid() override;
+
+protected:
+    inline void syncWithBuffer() override;
 
 private:
 
-    unsigned int optionsLength = 0;
-
-
     inline tcphdr *getTcpHeader() const;
+
+    inline unsigned short getTcpHeaderLength() const;
+
+    inline unsigned short getTcpOptionsLength();
+
+    inline void setTcpOptionsLength(unsigned short len);
 
 };
 
 tcphdr *TCPPacket::getTcpHeader() const {
-    auto tcph = (tcphdr *) buffer + sizeof(iphdr);
+    auto tcph = (tcphdr *) (buffer + getIpHeaderLength());
     return tcph;
 }
 
@@ -178,12 +182,12 @@ void TCPPacket::setDestination(sockaddr_in &dest) {
 
 void TCPPacket::setSequenceNumber(unsigned int seq) {
     auto tcph = getTcpHeader();
-    tcph->seq = htons(seq);
+    tcph->seq = htonl(seq);
 }
 
 void TCPPacket::setAcknowledgmentNumber(unsigned int ack) {
     auto tcph = getTcpHeader();
-    tcph->ack_seq = htons(ack);
+    tcph->ack_seq = htonl(ack);
     if (ack) tcph->ack = true;
 }
 
@@ -242,6 +246,13 @@ sockaddr_in TCPPacket::getSource() {//warn: skipped memset to zero
     return addr;
 }
 
+sockaddr_in TCPPacket::getDestination() {//warn: skipped memset to zero
+    auto tcph = getTcpHeader();
+    auto iph = getIpHeader();
+    sockaddr_in addr{AF_INET, tcph->dest, iph->daddr};
+    return addr;
+}
+
 inline bool TCPPacket::isFrom(sockaddr_in &src) {
     auto tcph = getTcpHeader();
     auto iph = getIpHeader();
@@ -252,13 +263,6 @@ bool TCPPacket::isTo(sockaddr_in &dest) {
     auto tcph = getTcpHeader();
     auto iph = getIpHeader();
     return dest.sin_port == tcph->dest && dest.sin_addr.s_addr == iph->daddr;
-}
-
-sockaddr_in TCPPacket::getDestination() {//warn: skipped memset to zero
-    auto tcph = getTcpHeader();
-    auto iph = getIpHeader();
-    sockaddr_in addr{AF_INET, tcph->dest, iph->daddr};
-    return addr;
 }
 
 
@@ -279,7 +283,7 @@ unsigned short TCPPacket::getUrgentPointer() {
     if (!isUrg()) return 0;
     else {
         auto tcph = getTcpHeader();
-        return ntohl(tcph->ack_seq);
+        return ntohs(tcph->urg_ptr);
     }
 }
 
@@ -321,6 +325,7 @@ unsigned short TCPPacket::getWindowSize() {
 unsigned char TCPPacket::getWindowShift() {
     unsigned char data;
     unsigned char len = getOption(3, &data, 1);
+    if (len == 0)return 0;
     if (len != 3)throw invalid_argument("Invalid window scale length encountered: " + to_string(len));
     return data;
 }
@@ -328,34 +333,36 @@ unsigned char TCPPacket::getWindowShift() {
 unsigned short TCPPacket::getMSS() {
     unsigned short result;
     unsigned int len = getOption(2, (unsigned char *) &result, 2);
-    if (len != 2) throw invalid_argument("Packet with invalid mss len: " + to_string(len));
+    if (len == 0) return DEFAULT_MSS;
+    if (len != 4) throw invalid_argument("Packet with invalid mss len: " + to_string(len));
     return ntohs(result);
 }
 
 unsigned int TCPPacket::appendData(unsigned char *data, unsigned int len) {
-    unsigned int total = min(len, maxSize - length);
-    memcpy(buffer + length, data, total);
+    unsigned int total = min(len, available());
+    memcpy(buffer + getLength(), data, total);
+    setLength(getLength() + total);
     return total;
 }
 
 void TCPPacket::clearData() {
-    length = OPTIONS_INDEX + optionsLength;
+    setLength(getIpHeaderLength() + getTcpHeaderLength());
 }
 
-
-unsigned int TCPPacket::getDataLength() const {
-    return length - OPTIONS_INDEX - optionsLength;
+unsigned short TCPPacket::getDataLength() const {
+    return getLength() - getTcpHeaderLength() - getIpHeaderLength();
 }
 
-unsigned int TCPPacket::copyDataTo(unsigned char *buff, unsigned int len) {
-    unsigned int total = min(len, getDataLength());
-    memcpy(buff, buffer + OPTIONS_INDEX + optionsLength, total);
+unsigned short TCPPacket::copyDataTo(unsigned char *buff, unsigned short len) {
+    unsigned short total = min(len, getDataLength());
+    memcpy(buff, buffer + getIpHeaderLength() + getTcpHeaderLength(), total);
     return total;
 }
 
 void TCPPacket::makeSyn(unsigned int seq, unsigned int ack) {
     setSequenceNumber(seq);
     setAcknowledgmentNumber(ack);
+    setTcpOptionsLength(0);
     clearData();
 
     auto tcph = getTcpHeader();
@@ -377,6 +384,7 @@ void TCPPacket::makeFin(unsigned int seq, unsigned int ack) {
 void TCPPacket::makeResetAck(unsigned int ack) {
     setAcknowledgmentNumber(ack);
     setSequenceNumber(0);
+    setTcpOptionsLength(0);//todo: improve
     clearData();
 
     auto tcph = getTcpHeader();
@@ -388,6 +396,7 @@ void TCPPacket::makeResetAck(unsigned int ack) {
 void TCPPacket::makeResetSeq(unsigned int seq) {
     setSequenceNumber(seq);
     setAcknowledgmentNumber(0);
+    setTcpOptionsLength(0);//todo: improve
     clearData();
 
     auto tcph = getTcpHeader();
@@ -399,18 +408,39 @@ void TCPPacket::makeResetSeq(unsigned int seq) {
 void TCPPacket::makeNormal(unsigned int seqNo, unsigned int ackSeq) {
     setSequenceNumber(seqNo);
     setAcknowledgmentNumber(ackSeq);
-
+    setTcpOptionsLength(0);//todo: improve
+    setLength(sizeof(iphdr) + sizeof(tcphdr));
     auto tcph = getTcpHeader();
     tcph->syn = false;
     tcph->rst = false;
     tcph->fin = false;
-};
+}
 
 inline unsigned int TCPPacket::getSegmentLength() const {
     unsigned int result = getDataLength();
     if (isSyn())result++;
     if (isFin())result++;
     return result;
+}
+
+unsigned short TCPPacket::getTcpHeaderLength() const {
+    return getTcpHeader()->doff * 4;
+}
+
+unsigned short TCPPacket::getTcpOptionsLength() {
+    return getTcpHeaderLength() - sizeof(tcphdr);
+}
+
+void TCPPacket::syncWithBuffer() {
+    Packet::syncWithBuffer();
+}
+
+void TCPPacket::setTcpOptionsLength(unsigned short len) {
+    unsigned short doff = sizeof(tcphdr) + len;
+    if (len % 4 != 0) {
+        getTcpHeader()->doff = doff / 4 + 1;
+    } else
+        getTcpHeader()->doff = doff / 4;
 }
 
 struct pseudo_header {

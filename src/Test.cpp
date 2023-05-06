@@ -245,28 +245,85 @@ enum class testEnum {
     enumA, enumB
 };
 
-void testSelfIncludingClass() {
-    class Recur {
-    public:
-        Recur() {
-            printf("Recur constructor called\n");
-        }
+/*This blocks manages to deactivate CLION's intellisense demanding restart to fix it.*/
+//void testSelfIncludingClass() {
+//    class Recur {
+//    public:
+//        Recur() {
+//            printf("Recur constructor called\n");
+//        }
+//
+//        int a{};
+////        Recur r1;
+//        Recur *r2 = new Recur;
+//    };
+//    Recur recur;
+//};
 
-        int a{};
-//        Recur r1;
-        Recur *r2 = new Recur;
+void UDPSocketTest() {
+    int sock1 = socket(AF_INET, SOCK_DGRAM, 0);
+    int sock2 = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock1 < 0 || sock2 < 2)exitWithError("Could not create sockets");
+
+    sockaddr_in addr;
+    addr.sin_family = AF_INET;
+    inet_pton(AF_INET, "192.168.1.4", &addr.sin_addr.s_addr);
+    addr.sin_port = htons(3334);
+    auto b2 = bind(sock2, reinterpret_cast<const sockaddr *>(&addr), sizeof addr);
+    if (b2 < 0)exitWithError("Could not bind sock2");
+
+    addr.sin_port = htons(3333);
+    auto b1 = bind(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr);
+    if (b1 < 0)exitWithError("Could not bind sock1");
+
+//    int l = listen(sock1, 20);
+    thread t{
+            [&] {
+                ::printf("Waiting at 3333\n");
+                char buf[3072];
+                while (true) {
+                    sockaddr_in from{};
+                    socklen_t len;
+                    auto r = recvfrom(sock1, buf, sizeof buf, 0, reinterpret_cast<sockaddr *>(&from),
+                                      &len);
+
+                    if (r > 0) {
+                        char ip[INET_ADDRSTRLEN];
+                        inet_ntop(AF_INET, &from.sin_addr.s_addr, ip, sizeof ip);
+                        printf("Received %zd bytes from %s:%d\n", r, ip, ntohs(from.sin_port));
+                    } else
+                        exitWithError("Could not receive");
+                }
+            }
     };
-    Recur recur;
-};
 
-void UDPSocketTest(){
-    int sock1 = socket(AF_INET,SOCK_DGRAM,0);
-    ls;
-    int sock2 = socket(AF_INET,SOCK_DGRAM,0);
+
+    while (true) {
+        char buf[200];
+        scanf("%s", buf);
+        int s = sendto(sock2, buf, strlen(buf) + 1, 0, (sockaddr *) &addr, sizeof addr);
+        if (s < 0)exitWithError("Could not send message");
+    }
+
 }
+
+void tunClientTest() {
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)exitWithError("Could not create sockets");
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
+    addr.sin_port = htons(41037);
+
+    if (connect(sock, (sockaddr *) &addr, sizeof addr) == -1)exitWithError("Could not connect");
+    char msg[] = "HELLO";
+    if (send(sock, msg, ::strlen(msg), 0) < strlen(msg))exitWithError("Could not send");
+}
+
 int main() {
-//    testSelfIncludingClass();
-    ::printf("Hello");
+    UDPSocketTest();
 }
-xzc;
+
+
 #pragma clang diagnostic pop

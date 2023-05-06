@@ -11,11 +11,11 @@
 
 class Handler {
 public:
-    Handler(Tunnel &tunnel);
+    explicit Handler(Tunnel &tunnel);
 
     bool start();
 
-    bool stop();
+    void stop();
 
 private:
     Tunnel &tunnel;
@@ -26,6 +26,11 @@ private:
     bool shouldRun = false;
     bool upStreamShuttingDown = false;
     bool downStreamShuttingDown = false;
+
+    fd_set rcv{};
+    fd_set snd{};
+    fd_set err{};
+    int maxFd{};
 
     void handleUpStream();
 

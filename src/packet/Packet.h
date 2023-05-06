@@ -7,9 +7,13 @@
 //#define TUNSERVER_PACKET_H
 
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 #pragma once
 
 #include "../Include.h"
+
+#define DEFAULT_MSS 576
 
 class Packet {
 public:
@@ -19,17 +23,17 @@ public:
 
     inline ~Packet();
 
-    virtual bool checkValidity() = 0;
+    virtual bool isValid() = 0;
 
-    virtual void makeValid() = 0;
+    virtual void validate() = 0;
 
     inline void setDoFragment(bool shouldFragment);
 
     inline bool getDoFragment();
 
-    inline unsigned int getSourceIp();
+    inline unsigned int getSourceIp() const;
 
-    inline unsigned int getDestinationIp();
+    inline unsigned int getDestinationIp() const;
 
     inline void setSourceIp(unsigned int addr);
 
@@ -37,36 +41,44 @@ public:
 
     inline unsigned int getMaxSize() const;
 
-    inline unsigned int getLength() const;
+    inline unsigned short getLength() const;
 
     inline unsigned int available() const;
 
     friend class Tunnel;
 
+    inline unsigned int getProtocol() const;
 
+    inline unsigned short getIpHeaderLength() const;
+
+    inline virtual void syncWithBuffer();
 protected:
-    unsigned char *buffer = nullptr;
-    unsigned int maxSize = 0;
-    unsigned int length = 0;
+    unsigned char *buffer{};
+
+    const unsigned int maxSize{};
 
     inline iphdr *getIpHeader() const;
+
+    inline void setLength(unsigned short len);
+
+private:
+
+    unsigned short length{};
 };
 
-Packet::Packet(unsigned int size) {
-    if (size < MIN_SIZE)size = MIN_SIZE;
-    maxSize = size;
+Packet::Packet(unsigned int size) : maxSize(size) {
+    if (size < MIN_SIZE)
+        throw invalid_argument("size is " + to_string(size) + "size can not be below " + to_string(MIN_SIZE));
+
     buffer = new unsigned char[size]();
-    length = sizeof(iphdr) + sizeof(tcphdr);
 
     auto iph = getIpHeader();
+    setLength(sizeof(iphdr));
     iph->ihl = 5;
     iph->version = 4;
     iph->tos = 0;
-    iph->tot_len = length;
-    iph->id = htonl(0); // id of this packet
-    iph->frag_off = 1 << 6; //do not frag
+    iph->frag_off = 0;//1 << 6; //do not frag
     iph->ttl = 64;
-    iph->protocol = IPPROTO_TCP;
     iph->check = 0; // correct calculation follows later
 }
 
@@ -92,14 +104,14 @@ bool Packet::getDoFragment() {
 #pragma clang diagnostic pop
 
 unsigned int Packet::available() const {
-    return maxSize - length;
+    return maxSize - getLength();
 }
 
-unsigned int Packet::getSourceIp() {
+unsigned int Packet::getSourceIp() const {
     return ntohl(getIpHeader()->saddr);
 }
 
-unsigned int Packet::getDestinationIp() {
+unsigned int Packet::getDestinationIp() const {
     return ntohl(getIpHeader()->daddr);
 }
 
@@ -115,12 +127,32 @@ unsigned int Packet::getMaxSize() const {
     return maxSize;
 }
 
-unsigned int Packet::getLength() const {
+unsigned short Packet::getLength() const {
     return length;
+}
+
+unsigned int Packet::getProtocol() const {
+    return getIpHeader()->protocol;
 }
 
 iphdr *Packet::getIpHeader() const {
     auto *iph = (iphdr *) buffer;
     return iph;
 }
+
+unsigned short Packet::getIpHeaderLength() const {
+    return getIpHeader()->ihl * 4;
+}
+
+void Packet::setLength(unsigned short len) {//warn: not check for invalid values
+    getIpHeader()->tot_len = htons(len);
+    length = len;
+}
+
+void Packet::syncWithBuffer() {
+    auto iph = getIpHeader();
+    length = ntohs(iph->tot_len);
+}
 //#endif //TUNSERVER_PACKET_H
+
+#pragma clang diagnostic pop

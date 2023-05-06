@@ -4,7 +4,9 @@
 
 #include "../Include.h"
 
-#define PACKET_SIZE 1024
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
+#define PACKET_SIZE 3072
 
 #include "Handler.h"
 
@@ -12,28 +14,35 @@ using namespace std;
 
 void Handler::handleUpStream() {
     TCPPacket packet(PACKET_SIZE);
-    fd_set rcv;
-    fd_set snd;
-    fd_set err;
 
-    FD_ZERO(&rcv);
-    FD_ZERO(&snd);
-    FD_ZERO(&err);
     int tunnelFd = tunnel.getFileDescriptor();
-    int maxFd = tunnelFd + 1;
-    timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = 10000;
+    int maxFdTunnel = tunnelFd + 1;
+    timeval tv{0, 10000};
 
-    FD_SET(tunnelFd, &rcv);
+    fd_set tunnelRcv;
+    FD_SET(tunnelFd, &tunnelRcv);
     while (shouldRun) {
-        fd_set copy = rcv;
+        fd_set copy = tunnelRcv;
         timeval tvCpy = tv;
-        int count = select(maxFd, &copy, nullptr, nullptr, &tvCpy);
+        int count = select(maxFdTunnel, &copy, nullptr, nullptr, &tvCpy);
+//        int count = 1;
         if (count < 0)exitWithError("Could not use select on tunnel's file descriptor");
 
         if (count && tunnel.readPacket(packet)) {
-            auto client = packet.getSource();
+            char srcIp[INET_ADDRSTRLEN];
+            char destIp[INET_ADDRSTRLEN];
+
+            unsigned int addr = htonl(packet.getSourceIp());
+            inet_ntop(AF_INET, &addr, srcIp, INET_ADDRSTRLEN);
+
+            addr = htonl(packet.getDestinationIp());
+            inet_ntop(AF_INET, &addr, destIp, INET_ADDRSTRLEN);
+
+#ifdef LOGGING
+            printf("Packet src: %s, dest: %s, proto: %d, len: %d\n", srcIp, destIp, packet.getProtocol(),
+                   packet.getLength());
+#endif
+
             bool isSyn = packet.isSyn();
             bool isHandled = false;
             TCPConnection *closedConnection = nullptr;
@@ -53,14 +62,15 @@ void Handler::handleUpStream() {
                 if (isSyn) {
                     if (connectionsCount == connectionsSize - 1) {
                         connectionsSize *= 2;
-                        connections = (TCPConnection **) ::realloc(connections, connectionsSize);
+                        connections = (TCPConnection **) ::realloc(connections,
+                                                                   connectionsSize * sizeof(TCPConnection *));
                     }
                     if (closedConnection == nullptr) {
                         auto con = new TCPConnection(tunnel, maxFd, &rcv, &snd, &err);
-                        connections[count] = con;
-                        count++;
+                        connections[connectionsCount] = con;
+                        connectionsCount++;
                         con->receiveFromClient(packet);
-                    }
+                    } else closedConnection->receiveFromClient(packet);
                 } else {
                     packet.swapEnds();
                     packet.clearData();
@@ -84,20 +94,12 @@ void Handler::handleUpStream() {
 
 void Handler::handleDownStream() {
     TCPPacket packet(PACKET_SIZE);
-    fd_set rcv;
-    fd_set snd;
-    fd_set err;
-    int maxFd = 0;
 
     FD_ZERO(&rcv);
     FD_ZERO(&snd);
     FD_ZERO(&err);
+    timeval tv{0, 10000};
 
-    timeval tv;
-    tv.tv_sec = 0;
-    tv.tv_usec = 10000;
-
-    int tunnelFd = tunnel.getFileDescriptor();
     while (shouldRun) {
         fd_set rcvCpy = rcv;
         timeval tvCpy = tv;
@@ -112,13 +114,13 @@ void Handler::handleDownStream() {
             }
         }
 
-        for (unsigned int ind = 0; ind < connectionsCount && count > 0; ind++) {
+        for (unsigned int ind = 0; ind < connectionsCount; ind++) {
             auto con = connections[ind];
             if (con->getState() == TCPConnection::CLOSED)continue;
             con->flushDataToClient(packet);
         }
     }
-    unique_lock<mutex>(mtx);
+    unique_lock<mutex> lock(mtx);//todo: remove as not necessary
     downStreamShuttingDown = false;
     if (upStreamShuttingDown) return;
     else cleanUp();
@@ -126,17 +128,23 @@ void Handler::handleDownStream() {
 }
 
 bool Handler::start() {
-    unique_lock<mutex>(mtx);
+    unique_lock<mutex> lock(mtx);
     if (shouldRun)return true;
     if (upStreamShuttingDown || downStreamShuttingDown)return false;
     shouldRun = true;
     thread th1{[this] { handleUpStream(); }};
     thread th2{[this] { handleDownStream(); }};
+
+    th1.join();
+    th2.join();
     return true;
 }
 
-bool Handler::stop() {
+void Handler::stop() {
+    if (!shouldRun)return;
     shouldRun = false;
+    upStreamShuttingDown = true;
+    downStreamShuttingDown = true;
 }
 
 void Handler::cleanUp() {
@@ -144,6 +152,11 @@ void Handler::cleanUp() {
         auto con = connections[ind];
         delete con;
     }
-    delete connections;//todo: might collide with realloc
+    delete[] connections;//todo: might collide with re-alloc
 }
 
+Handler::Handler(Tunnel &tunnel) : tunnel(tunnel) {
+}
+
+
+#pragma clang diagnostic pop
