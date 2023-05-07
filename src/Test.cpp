@@ -321,8 +321,114 @@ void tunClientTest() {
     if (send(sock, msg, ::strlen(msg), 0) < strlen(msg))exitWithError("Could not send");
 }
 
+void startHelloServer() {
+    auto sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock < 0)exitWithError("Could not create a socket");
+
+    sockaddr_in address{};
+    socklen_t len;
+    inet_pton(AF_INET, "192.168.1.4", &address.sin_addr);
+    address.sin_port = htons(3335);
+    address.sin_family = AF_INET;
+
+    if (bind(sock, (sockaddr *) &address, sizeof address) < 0)exitWithError("Could not bind");
+    if (listen(sock, 10) < 0)exitWithError("Could not listen");
+
+    char buf[INET_ADDRSTRLEN];
+    memset(buf, 0, INET_ADDRSTRLEN);
+
+    if (inet_ntop(AF_INET, &address.sin_addr, buf, INET_ADDRSTRLEN) == NULL) {
+        exitWithError("Could not log server:host info");
+    }
+
+    printf("Listening at %s:%d\n", buf, ntohs(address.sin_port));
+    while (true) {
+        sockaddr_in addr{};
+        len = sizeof addr;
+        auto client = accept(sock, (sockaddr *) &addr, &len);
+        if (client < 0) {
+            exitWithError("Could not accept a client");
+        }
+
+        memset(buf, 0, INET_ADDRSTRLEN);
+
+        if (inet_ntop(AF_INET, &addr.sin_addr, buf, INET_ADDRSTRLEN) == NULL)
+            exitWithError("Could not log server:host info");
+        printf("Accepted client from %s:%d\n", buf, ntohs(addr.sin_port));
+
+        auto message = "Hello World!\n";
+        send(client, message, strlen(message), 0);//assuming it sends it all at ounce
+//        sleep(1000);
+
+        close(client);
+    }
+}
+
+[[noreturn]] void startHelloAndListen() {
+    auto sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (sock < 0)exitWithError("Could not create a socket");
+
+    sockaddr_in address{};
+    socklen_t len;
+    inet_pton(AF_INET, "192.168.1.4", &address.sin_addr);
+    address.sin_port = htons(3337);
+    address.sin_family = AF_INET;
+    static int _count{};
+
+    if (bind(sock, (sockaddr *) &address, sizeof address) < 0)exitWithError("Could not bind");
+    if (listen(sock, 10) < 0)exitWithError("Could not listen");
+
+    char buf[INET_ADDRSTRLEN];
+    memset(buf, 0, INET_ADDRSTRLEN);
+
+    if (inet_ntop(AF_INET, &address.sin_addr, buf, INET_ADDRSTRLEN) == nullptr) {
+        exitWithError("Could not log server:host info");
+    }
+
+    printf("Listening at %s:%d\n", buf, ntohs(address.sin_port));
+    while (true) {
+        sockaddr_in addr{};
+        len = sizeof addr;
+        auto client = accept(sock, (sockaddr *) &addr, &len);
+        if (client < 0) {
+            exitWithError("Could not accept a client");
+        }
+        _count++;
+        int count = _count;
+
+        memset(buf, 0, INET_ADDRSTRLEN);
+
+        if (inet_ntop(AF_INET, &addr.sin_addr, buf, INET_ADDRSTRLEN) == NULL)
+            exitWithError("Could not log server:host info");
+        printf("Accepted client %d from %s:%d\n", count, buf, ntohs(addr.sin_port));
+
+        thread th{[client, count] {
+            auto message = "Hello World!\n";
+            send(client, message, strlen(message), 0);//assuming it sends it all at ounce
+            char buf[1000];
+            while (true) {
+                auto rec = recv(client, buf, sizeof(buf), 0);
+                if (rec < 0) {
+                    printError("Failed to receive from the client");
+                    close(client);
+                    break;
+                }
+                if (rec == 0) {
+                    ::printf("Client %d finished\n", count);
+                    close(client);
+                    break;
+                } else {
+                    ::printf("Read %zd bytes from client %d\n", rec, count);
+                }
+            }
+            close(client);
+        }};
+        th.detach();
+    }
+}
+
 int main() {
-    UDPSocketTest();
+    startHelloAndListen();
 }
 
 

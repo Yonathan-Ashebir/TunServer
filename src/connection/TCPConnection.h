@@ -21,6 +21,8 @@ using namespace std;
 #define ACKNOWLEDGE_DELAY 250
 #define SEND_MAX_RETRIES 3
 
+constexpr chrono::duration<long, nano> MAX_RTT(5000000000);
+
 class TCPConnection {
 
 public:

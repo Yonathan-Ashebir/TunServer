@@ -23,7 +23,10 @@ TCPConnection::~TCPConnection() {
 }
 
 int createTcpSocket() {
-    int result = socket(AF_INET, SOCK_STREAM /*| SOCK_NONBLOCK*/, IPPROTO_TCP);//warn: might not work on windows
+    int result = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);//warn: might not work on windows
+    int val = 1;
+//    if (setsockopt(result, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)
+//        exitWithError("Could not disable Nagle algorithm");
     return result;
 }
 
@@ -48,6 +51,7 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
     auto sendAck = [&packet, this] {
         packet.swapEnds();
         packet.makeNormal(sendNext, receiveNext);
+        packet.setWindowSize((unsigned short) (getReceiveAvailable()));
         packet.clearData();
         tunnel.writePacket(packet);
 #ifdef LOGGING
@@ -68,7 +72,8 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
                     //re-establish
                     fd = sock;
                     sendNewDataSequence = sendSequence = sendUnacknowledged = sendNext = generateSequenceNo();
-                    receiveSequence = receiveUser = receiveNext = receivePushSequence = packet.getSequenceNumber() + 1;
+                    receiveSequence = receiveUser = receiveNext = receivePushSequence =
+                            packet.getSequenceNumber() + 1;
                     sendWindow = packet.getWindowSize();
                     windowShift = packet.getWindowShift();
                     mss = packet.getMSS();
@@ -155,7 +160,7 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
 #endif
                         sendSequence = sendUnacknowledged = sendNewDataSequence = sendNext = ack;
                         auto now = chrono::steady_clock::now();
-                        rtt = lastSendTime - now;
+                        rtt = min(now - lastSendTime, MAX_RTT);
                         lastTimeAcknowledgmentAccepted = now;
                         FD_SET(fd, receiveSet);
                         maxFd = max(maxFd, fd + 1);
@@ -187,17 +192,20 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
                             if (packet.isPush()) {
                                 receivePushSequence = receiveNext;
 #ifdef LOGGING
-                                ::printf("Push flag set in the datagram received\n");
+                                ::printf("Push flag set in the datagram received & isFin %b\n", packet.isFin());
 #endif
                             }
 #ifdef LOGGING
                             if (len > 0) {
                                 printf("Accepted data packet: %d\n", total);
-                            } else ::printf("Accepted simple ack\n");
+                            } else ::printf("Accepted simple data ack\n");
 #endif
 
 
                             if (packet.isFin() && total == len) {
+#ifdef LOGGING
+                                ::printf("Client read finished\n");
+#endif
                                 //Process fin
                                 receiveNext++;
                                 clientReadFinished = true;//todo: state modifier here too
@@ -207,19 +215,20 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
                             if (state == CLOSED)return;
                         }
 #ifdef LOGGING
-                        else ::printf("Accepted simple ack\n");
+                        else ::printf("Accepted simple data ack\n");
 #endif
 
                         //Accept ack anyway
                         sendUnacknowledged = max(sendUnacknowledged, ack);
 #ifdef LOGGING
-                        if (isDownStreamComplete())::printf("Downstream complete at receiveFromClient\n");
+                        if (isDownStreamComplete())+::printf("Downstream complete accepted at receiveFromClient\n");
 #endif
-                        auto now = chrono::steady_clock::now();
-                        auto d = lastTimeAcknowledgmentAccepted - now;
-                        if (d < rtt / 2)lastSendTime += d;
-                        lastTimeAcknowledgmentAccepted = now;
-                        retryCount = 0;
+                        //todo: clean here
+//                        auto now = chrono::steady_clock::now();
+//                        auto d = lastTimeAcknowledgmentAccepted - now;
+//                        if (d < rtt / 2)lastSendTime += d;
+//                        lastTimeAcknowledgmentAccepted = now;
+//                        retryCount = 0;
 
                         //Both might be complete now
                         if (isUpStreamComplete() && isDownStreamComplete())closeConnection();
@@ -246,19 +255,22 @@ void TCPConnection::receiveFromServer(TCPPacket &packet) {
     //Only matter if state == ESTABLISHED
     if (state != ESTABLISHED)return;
     trimSendBuffer();
-    size_t total = read(fd, sendBuffer + sendNewDataSequence - sendSequence, getSendAvailable());
+    auto amt = getSendAvailable();
+    int total = (int) read(fd, sendBuffer + sendNewDataSequence - sendSequence, amt);//warn:not logically safe
     if (total > 0) {
         //Advance next read point
         sendNewDataSequence += total;
 #ifdef LOGGING
-        ::printf("Received %zu bytes from server\n", total);
+        ::printf("Received %d bytes from server\n", total);
 #endif
-    } else if (total == 0 || (errno != EWOULDBLOCK && errno != EAGAIN)) {
+    } else if (amt > 0 && (errno != EWOULDBLOCK && errno != EAGAIN)) {
         //All data has been received from server or assume so !!!
         if (!serverReadFinished) {
 #ifdef LOGGING
             ::printf("Server read finished\n");
 #endif
+            //This is important as it a closed stream, will always be readable
+            FD_CLR(fd, receiveSet);
             sendNewDataSequence++;
             serverReadFinished = true;
 
@@ -286,9 +298,12 @@ void TCPConnection::flushDataToServer(TCPPacket &packet) {
                 setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1) {
                 exitWithError("Could not disable Nagle algorithm");
             }
-            size_t total = send(fd, receiveBuffer + receiveUser - receiveSequence, amt, 0);
-            ::printf("Flushed %zu bytes to server\n ",total);
+            int total = (int) send(fd, receiveBuffer + receiveUser - receiveSequence, amt,
+                                   0);//todo: make sure using int is enough
             val = 0;
+#ifdef  LOGGING
+            ::printf("Flushed %d bytes to server\n", total);
+#endif
             if (receivePushSequence > receiveUser &&
                 setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1) {
                 exitWithError("Could not re-enable Nagle algorithm");
@@ -326,45 +341,56 @@ void TCPConnection::flushDataToClient(TCPPacket &packet) {
     auto diff = now - lastSendTime;
 
     if (!isDownStreamComplete()) {
-        auto sendDataFrom = [this, &packet](unsigned int seq) {//todo: check if this type of declaration has overhead
+        auto sendDataStartingFrom = [this, &packet](
+                unsigned int seq) {//todo: check if this type of declaration has overhead
             packet.setEnds(destination, source);
             while (seq < sendNewDataSequence) {
                 packet.makeNormal(seq, receiveNext);
-
+                packet.setWindowSize((unsigned short) (getReceiveAvailable()));
                 auto len = min(sendNewDataSequence - seq - (serverReadFinished ? 1 : 0), (unsigned int) mss);
+#ifdef STRICT_MODE
+                if (len > mss || sendNewDataSequence - seq == 0)
+                    exitWithError(("Packet data len to send is wrong: " + to_string(len)).c_str());
+#endif
                 packet.clearData();
                 packet.appendData(sendBuffer + seq - sendSequence, len);
                 seq += len;
 
                 if (serverReadFinished && seq == sendNewDataSequence - 1) {
+#ifdef LOGGING
+                    printf("Setting fin flag\n");
+#endif
                     packet.setFinFlag(true);
                     seq += 1;
                 }
                 tunnel.writePacket(packet);
             }
         };
-        if (diff > chrono::duration<long, milli>(3000) &&
+        if (diff.count() / 5 > rtt.count() &&
             sendUnacknowledged < sendNewDataSequence) {
             if (retryCount == SEND_MAX_RETRIES) {
                 closeConnection();
                 return;
             }
             if (sendUnacknowledged < sendNext)retryCount++;
-            sendDataFrom(sendUnacknowledged);
+            sendDataStartingFrom(sendUnacknowledged);
 #ifdef LOGGING
-            ::printf("Sent unacknowledged data to the client due to timeout, rtt millis: %ld\n", rtt.count() / 1000000);
+            ::printf("Sent unacknowledged data to the client due to timeout, rtt millis: %ld\n",
+                     rtt.count() / 1000000);
 #endif
-        } else {
-            auto amt = sendNewDataSequence - sendNext - (serverReadFinished ?: 1, 0);
-            if (amt >= mss || (serverReadFinished && sendNext < sendNewDataSequence)) {
-                sendDataFrom(sendNext);
+
+            sendNext = sendNewDataSequence;
+            lastTimeAcknowledgmentAccepted = lastSendTime = now;
+        } else if (serverReadFinished && sendNext < sendNewDataSequence || sendNewDataSequence - sendNext > mss) {
+            sendDataStartingFrom(sendNext);
 #ifdef LOGGING
-                ::printf("Sent new data to the client due to, %d was greater than %d\n", amt, mss);
+            ::printf("Sent new data to the client\n");
 #endif
-            }
+
+            sendNext = sendNewDataSequence;
+            lastTimeAcknowledgmentAccepted = lastSendTime = now;
         }
-        sendNext = sendNewDataSequence;
-        lastTimeAcknowledgmentAccepted = lastSendTime = now;
+
 
     } else if (isUpStreamComplete())
         closeConnection();

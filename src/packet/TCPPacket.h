@@ -335,7 +335,7 @@ unsigned short TCPPacket::getMSS() {
     unsigned int len = getOption(2, (unsigned char *) &result, 2);
     if (len == 0) return DEFAULT_MSS;
     if (len != 4) throw invalid_argument("Packet with invalid mss len: " + to_string(len));
-    return ntohs(result);
+    return max(ntohs(result), (unsigned short) DEFAULT_MSS);
 }
 
 unsigned int TCPPacket::appendData(unsigned char *data, unsigned int len) {
@@ -408,12 +408,26 @@ void TCPPacket::makeResetSeq(unsigned int seq) {
 void TCPPacket::makeNormal(unsigned int seqNo, unsigned int ackSeq) {
     setSequenceNumber(seqNo);
     setAcknowledgmentNumber(ackSeq);
+    setPushFlag(true);
     setTcpOptionsLength(0);//todo: improve
     setLength(sizeof(iphdr) + sizeof(tcphdr));
+
     auto tcph = getTcpHeader();
     tcph->syn = false;
     tcph->rst = false;
     tcph->fin = false;
+    tcph->urg = false;
+    tcph->urg_ptr = 0;
+    tcph->res1 = 0;
+    tcph->res2 = 0;
+
+    auto iph = getIpHeader();
+    iph->version = 4;
+    iph->ihl = 5;
+    iph->tos = 0;
+    iph->frag_off = 0;
+    iph->ttl = 64;
+    iph->protocol = IPPROTO_TCP;
 }
 
 inline unsigned int TCPPacket::getSegmentLength() const {

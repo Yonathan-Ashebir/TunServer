@@ -196,6 +196,7 @@ void TCPPacket::validate() {
 
 bool TCPPacket::isValid() {
     auto iph = getIpHeader();
+//    return getProtocol() == 6;
     const auto ipHeaderSize = iph->ihl * 4;
     if (getProtocol() != 6 || checksum(buffer, ipHeaderSize) != 0)return false;
 

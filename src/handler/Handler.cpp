@@ -39,8 +39,10 @@ void Handler::handleUpStream() {
             inet_ntop(AF_INET, &addr, destIp, INET_ADDRSTRLEN);
 
 #ifdef LOGGING
-            printf("Packet src: %s, dest: %s, proto: %d, len: %d\n", srcIp, destIp, packet.getProtocol(),
-                   packet.getLength());
+            printf("Packet src: %s, dest: %s, proto: %d, len: %d, isSyn: %b, isFin: %b, isAck: %b, isRst: %b, isUrg: %b\n",
+                   srcIp, destIp, packet.getProtocol(),
+                   packet.getLength(), packet.isSyn(), packet.isFin(), packet.isAck(), packet.isReset(),
+                   packet.isUrg());
 #endif
 
             bool isSyn = packet.isSyn();
