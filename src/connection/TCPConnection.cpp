@@ -7,8 +7,8 @@
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 
-TCPConnection::TCPConnection(Tunnel &tunnel, int &maxFd, fd_set *rcv, fd_set *snd, fd_set *err) : tunnel(tunnel),
-                                                                                                  maxFd(maxFd) {
+TCPConnection::TCPConnection(Tunnel &tunnel, socket_t &maxFd, fd_set *rcv, fd_set *snd, fd_set *err) : tunnel(tunnel),
+                                                                                                       maxFd(maxFd) {
     if (!(rcv && snd && err))throw invalid_argument("Null set is not allowed");
     receiveSet = rcv;
     sendSet = snd;
@@ -22,11 +22,17 @@ TCPConnection::~TCPConnection() {
 #endif
 }
 
-int createTcpSocket() {
-    int result = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);//warn: might not work on windows
+socket_t createTcpSocket() {
+    socket_t result = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+#ifdef _WIN32
+
+#else
+#endif
+
     int val = 1;
 //    if (setsockopt(result, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)
 //        exitWithError("Could not disable Nagle algorithm");
+
     return result;
 }
 
@@ -61,7 +67,7 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
     if (packet.isSyn() && !packet.isAck()) {
         switch (state) {
             case CLOSED: {
-                int sock = createTcpSocket();
+                socket_t sock = createTcpSocket();
                 if (sock < 0) {
                     exitWithError("Could not create socket");//todo: take it simple
                 }
@@ -85,7 +91,7 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
                     lastSendTime = lastAcknowledgmentSent = lastTimeAcknowledgmentAccepted = now;
 
 
-                    const unsigned int newLen = (65535 << windowShift) * SEND_WINDOW_SCALE;
+                    const unsigned int newLen = 3072;//(65535 << windowShift) * SEND_WINDOW_SCALE;
                     if (!sendBuffer || sendLength < newLen) {
                         delete sendBuffer;
                         sendBuffer = new unsigned char[newLen];
@@ -133,10 +139,9 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
     } else if (packet.isSyn() && packet.isAck())sendReset();
     else if (packet.isReset()) {
         switch (state) {
-#ifdef STRICT_MODE
             case CLOSED:
                 break;
-#endif
+
                 //info: since there is no syn_sent state
             default: {
                 unsigned int seq = packet.getSequenceNumber();
@@ -174,8 +179,6 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
                 case ESTABLISHED: {
                     if (seq == receiveNext) {
                         if (!clientReadFinished) {
-#ifdef LOGGING
-#endif
                             //If did not receive fin
                             unsigned int len = packet.getDataLength();
                             unsigned int available = getReceiveAvailable();
@@ -221,20 +224,19 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
                         //Accept ack anyway
                         sendUnacknowledged = max(sendUnacknowledged, ack);
 #ifdef LOGGING
-                        if (isDownStreamComplete())+::printf("Downstream complete accepted at receiveFromClient\n");
 #endif
                         //todo: clean here
 //                        auto now = chrono::steady_clock::now();
 //                        auto d = lastTimeAcknowledgmentAccepted - now;
 //                        if (d < rtt / 2)lastSendTime += d;
 //                        lastTimeAcknowledgmentAccepted = now;
-//                        retryCount = 0;
+                        retryCount = 0;
 
                         //Both might be complete now
                         if (isUpStreamComplete() && isDownStreamComplete())closeConnection();
                         else {
                             //If they are not complete
-                            trimSendBuffer();
+                          //  trimSendBuffer(); //todo: temporary fix
                             acknowledgeDelayed(packet);
                         }
 
@@ -256,7 +258,8 @@ void TCPConnection::receiveFromServer(TCPPacket &packet) {
     if (state != ESTABLISHED)return;
     trimSendBuffer();
     auto amt = getSendAvailable();
-    int total = (int) read(fd, sendBuffer + sendNewDataSequence - sendSequence, amt);//warn:not logically safe
+    int total = (int) recv(fd, reinterpret_cast<char *>(sendBuffer + sendNewDataSequence - sendSequence), (int) amt,
+                           0);//warn:not logically safe
     if (total > 0) {
         //Advance next read point
         sendNewDataSequence += total;
@@ -294,20 +297,21 @@ void TCPConnection::flushDataToServer(TCPPacket &packet) {
         auto amt = receiveNext - receiveUser - (clientReadFinished ? 1 : 0);
         if (amt > 0) {
             int val;
-            if (receivePushSequence > receiveUser &&
-                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1) {
-                exitWithError("Could not disable Nagle algorithm");
-            }
-            int total = (int) send(fd, receiveBuffer + receiveUser - receiveSequence, amt,
+//            if (receivePushSequence > receiveUser &&
+//                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1) {
+//                exitWithError("Could not disable Nagle algorithm");
+//            }
+            int total = (int) send(fd, reinterpret_cast<const char *>(receiveBuffer + receiveUser - receiveSequence),
+                                   (int) amt,
                                    0);//todo: make sure using int is enough
             val = 0;
 #ifdef  LOGGING
             ::printf("Flushed %d bytes to server\n", total);
 #endif
-            if (receivePushSequence > receiveUser &&
-                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1) {
-                exitWithError("Could not re-enable Nagle algorithm");
-            }
+//            if (receivePushSequence > receiveUser &&
+//                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1) {
+//                exitWithError("Could not re-enable Nagle algorithm");
+//            }
             if (total > 0) {
                 receiveUser += total;
                 if (clientReadFinished && receiveUser == receiveNext - 1) {
@@ -366,7 +370,7 @@ void TCPConnection::flushDataToClient(TCPPacket &packet) {
                 tunnel.writePacket(packet);
             }
         };
-        if (diff.count() / 5 > rtt.count() &&
+        if (diff.count() / 10 > rtt.count() &&
             sendUnacknowledged < sendNewDataSequence) {
             if (retryCount == SEND_MAX_RETRIES) {
                 closeConnection();

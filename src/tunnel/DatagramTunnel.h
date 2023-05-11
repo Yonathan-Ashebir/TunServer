@@ -25,7 +25,7 @@ public:
 bool DatagramTunnel::writePacket(Packet &packet) {
     packet.validate();
     auto buffer = getDataBuffer(packet);
-    auto res = send(fd, buffer, packet.getLength(), 0);
+    auto res = send(fd,(char *) buffer, packet.getLength(), 0);
     if (res == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
         exitWithError("Could not read a packet");
     }
@@ -35,7 +35,7 @@ bool DatagramTunnel::writePacket(Packet &packet) {
 bool DatagramTunnel::readPacket(Packet &packet) {
     auto len = packet.getMaxSize();
     auto buffer = getDataBuffer(packet);
-    auto total = recv(fd, buffer, len, 0);
+    auto total = recv(fd, (char *)buffer, len, 0);
 
     if (total == -1 && errno != EAGAIN && errno != EWOULDBLOCK) {
         exitWithError("Could not read a packet");

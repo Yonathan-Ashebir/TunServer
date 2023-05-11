@@ -242,14 +242,14 @@ void TCPPacket::setMSS(unsigned short size) {
 sockaddr_in TCPPacket::getSource() {//warn: skipped memset to zero
     auto tcph = getTcpHeader();
     auto iph = getIpHeader();
-    sockaddr_in addr{AF_INET, tcph->source, iph->saddr};
+    sockaddr_in addr{AF_INET, tcph->source, *(in_addr*)&iph->saddr};
     return addr;
 }
 
 sockaddr_in TCPPacket::getDestination() {//warn: skipped memset to zero
     auto tcph = getTcpHeader();
     auto iph = getIpHeader();
-    sockaddr_in addr{AF_INET, tcph->dest, iph->daddr};
+    sockaddr_in addr{AF_INET, tcph->dest, *(in_addr*)&iph->daddr};
     return addr;
 }
 
@@ -458,11 +458,11 @@ void TCPPacket::setTcpOptionsLength(unsigned short len) {
 }
 
 struct pseudo_header {
-    u_int32_t source_address;
-    u_int32_t dest_address;
-    u_int8_t placeholder;
-    u_int8_t protocol;
-    u_int16_t tcp_length;
+    unsigned int source_address;
+    unsigned int dest_address;
+    unsigned char placeholder;
+    unsigned char protocol;
+    unsigned short tcp_length;
 };
 
 

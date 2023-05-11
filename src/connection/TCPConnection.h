@@ -21,7 +21,7 @@ using namespace std;
 #define ACKNOWLEDGE_DELAY 250
 #define SEND_MAX_RETRIES 3
 
-constexpr chrono::duration<long, nano> MAX_RTT(5000000000);
+constexpr chrono::nanoseconds MAX_RTT(5000000000);
 
 class TCPConnection {
 
@@ -36,7 +36,7 @@ public:
     };
 
 
-    TCPConnection(Tunnel &tunnel, int &maxFd,
+    TCPConnection(Tunnel &tunnel, socket_t &maxFd,
                   fd_set *rcv, fd_set
                   *snd,
                   fd_set *err
@@ -46,7 +46,7 @@ public:
 
     inline states getState();
 
-    inline int getFd() const;
+    inline socket_t getFd() const;
 
     inline bool canHandle(TCPPacket &packet);
 
@@ -62,8 +62,8 @@ private:
     states state = CLOSED;
     bool clientReadFinished = false;
     bool serverReadFinished = false;
-    int fd{};
-    int &maxFd;
+    socket_t fd{};
+    socket_t &maxFd;
 
     Tunnel &tunnel;
     mutex mtx;
@@ -128,7 +128,7 @@ void TCPConnection::closeConnection() {
     FD_CLR(fd, receiveSet);
     FD_CLR(fd, sendSet);
     FD_CLR(fd, errorSet);
-    ::close(fd);
+    CLOSE(fd);
     state = CLOSED;
 }
 
@@ -139,8 +139,8 @@ unsigned int TCPConnection::getReceiveAvailable() const {
 void TCPConnection::acknowledgeDelayed(TCPPacket &packet) {
     if (isUpStreamComplete())return;
     auto now = chrono::steady_clock::now();
-    if ((chrono::duration_cast<chrono::milliseconds>(now - lastAcknowledgmentSent).count() &&
-         lastAcknowledgedSequence != receiveNext) > ACKNOWLEDGE_DELAY ||
+    if ((chrono::duration_cast<chrono::milliseconds>(now - lastAcknowledgmentSent).count() > ACKNOWLEDGE_DELAY &&
+         lastAcknowledgedSequence != receiveNext)  ||
         receiveNext - lastAcknowledgedSequence > mss * 2) {
         packet.setEnds(destination, source);
         packet.clearData();
@@ -210,7 +210,7 @@ bool TCPConnection::canHandle(TCPPacket &packet) {
     return packet.isFrom(source);
 }
 
-int TCPConnection::getFd() const {
+socket_t TCPConnection::getFd() const {
     return fd;
 }
 

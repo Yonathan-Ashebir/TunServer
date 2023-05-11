@@ -370,8 +370,8 @@ void startHelloServer() {
 
     sockaddr_in address{};
     socklen_t len;
-    inet_pton(AF_INET, "192.168.1.4", &address.sin_addr);
-    address.sin_port = htons(3337);
+    inet_pton(AF_INET, "0.0.0.0", &address.sin_addr);
+    address.sin_port = htons(3333);
     address.sin_family = AF_INET;
     static int _count{};
 

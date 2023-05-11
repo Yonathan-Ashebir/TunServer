@@ -21,6 +21,10 @@ void Handler::handleUpStream() {
 
     fd_set tunnelRcv;
     FD_SET(tunnelFd, &tunnelRcv);
+#ifdef LOGGING
+    ::printf("Handling up streams\n");
+#endif
+
     while (shouldRun) {
         fd_set copy = tunnelRcv;
         timeval tvCpy = tv;
@@ -102,11 +106,14 @@ void Handler::handleDownStream() {
     FD_ZERO(&err);
     timeval tv{0, 10000};
 
+#ifdef LOGGING
+    ::printf("Handling down streams\n");
+#endif
     while (shouldRun) {
         fd_set rcvCpy = rcv;
         timeval tvCpy = tv;
         int count = select(maxFd, &rcvCpy, nullptr, nullptr, &tvCpy);
-        if (count < 0)exitWithError("Could not use select on tunnel's file descriptor");
+        if (count < 0)exitWithError("Could not use select on one of the socket's file descriptor");
         for (unsigned int ind = 0; ind < connectionsCount && count > 0; ind++) {
             auto con = connections[ind];
             if (con->getState() == TCPConnection::CLOSED)continue;

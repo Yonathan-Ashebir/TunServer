@@ -30,7 +30,7 @@ private:
     fd_set rcv{};
     fd_set snd{};
     fd_set err{};
-    int maxFd{};
+    socket_t maxFd{};
 
     void handleUpStream();
 

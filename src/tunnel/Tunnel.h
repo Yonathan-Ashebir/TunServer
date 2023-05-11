@@ -6,7 +6,6 @@
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 #ifndef TUNSERVER_TUNNEL_H
 #define TUNSERVER_TUNNEL_H
-#pragma once
 
 #include "../packet/TCPPacket.h"
 

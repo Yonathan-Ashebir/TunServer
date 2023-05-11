@@ -19,6 +19,11 @@ class Packet {
 public:
     const unsigned int MIN_SIZE = 300;
 
+    Packet()= delete;
+    Packet(Packet&)= delete;
+    Packet(Packet&&)= delete;
+
+
     inline explicit Packet(unsigned int size);
 
     inline ~Packet();
