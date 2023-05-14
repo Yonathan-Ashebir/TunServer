@@ -408,7 +408,7 @@ void TCPPacket::makeResetSeq(unsigned int seq) {
 void TCPPacket::makeNormal(unsigned int seqNo, unsigned int ackSeq) {
     setSequenceNumber(seqNo);
     setAcknowledgmentNumber(ackSeq);
-    setPushFlag(true);
+    setPushFlag(false);
     setTcpOptionsLength(0);//todo: improve
     setLength(sizeof(iphdr) + sizeof(tcphdr));
 

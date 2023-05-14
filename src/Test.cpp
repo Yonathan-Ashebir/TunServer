@@ -3,6 +3,8 @@
 //
 #include <mutex>
 #include "Include.h"
+#include "./packet/TCPPacket.h"
+#include "./tunnel/DatagramTunnel.h"
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
@@ -321,6 +323,61 @@ void tunClientTest() {
     if (send(sock, msg, ::strlen(msg), 0) < strlen(msg))exitWithError("Could not send");
 }
 
+[[noreturn]] void udpFlushTest() {
+    int sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (sock < 0)exitWithError("Could not create sockets");
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    inet_pton(AF_INET, "1.1.1.1", &addr.sin_addr.s_addr);
+    addr.sin_port = htons(80);
+
+    if (connect(sock, (sockaddr *) &addr, sizeof addr) == -1)exitWithError("Could not connect");
+    char msg[5000]{'H'};
+    auto msgStr = string(5000, 'H');
+
+    TCPPacket packet(3072);
+    DatagramTunnel tunnel(sock);
+    while (true) {
+#define msg_udp_flush msgStr.c_str()
+        if (send(sock, msg_udp_flush, ::strlen(msg_udp_flush), 0) < strlen(msg_udp_flush))
+            exitWithError("Could not send");
+
+//        packet.makeNormal(100, 100);
+//        packet.setWindowSize(65535);
+//        packet.clearData();
+//        packet.appendData(reinterpret_cast<unsigned char *>(msg), 516);
+//        tunnel.writePacket(packet);
+
+        /*Memory allocation with flush test*/
+/*        char buf[5000];
+        char buf2[5000];
+//        char *buf = new char[5000];
+//        char *buf2 = new char[5000];
+        memcpy(buf, buf2, 5000);
+//        delete[] buf;
+//        delete[] buf2;*/
+
+        /*Arithmetic with flushing*/
+        /* unsigned int count = 0;
+         while (count < 1000) {
+             count++;
+             rand();
+         }*/
+
+        /*Packet management*/
+
+
+    }
+}
+
+void memoryAllocateTest() {
+    while (true) {
+        char *buf = new char[5000];
+        delete[] buf;
+    }
+}
+
 void startHelloServer() {
     auto sock = socket(PF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock < 0)exitWithError("Could not create a socket");
@@ -357,6 +414,7 @@ void startHelloServer() {
         printf("Accepted client from %s:%d\n", buf, ntohs(addr.sin_port));
 
         auto message = "Hello World!\n";
+
         send(client, message, strlen(message), 0);//assuming it sends it all at ounce
 //        sleep(1000);
 
@@ -427,8 +485,9 @@ void startHelloServer() {
     }
 }
 
+
 int main() {
-    startHelloAndListen();
+    udpFlushTest();
 }
 
 

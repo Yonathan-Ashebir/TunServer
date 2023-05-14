@@ -26,8 +26,8 @@
 #include <thread>
 #include <sys/types.h>
 
-#define STRICT_MODE
-//#define LOGGING
+//#define STRICT_MODE
+#define LOGGING
 
 #ifdef _WIN32
 //#define WIN32_LEAN_AND_MEAN
@@ -122,13 +122,25 @@ inline void printError(const char *tag, int errNo) {
              getErrorName(errno), ::strerror(errNo));
 }
 
+inline void printError(const string &tag, int errNo) {
+    printError(tag.c_str(), errNo);
+}
+
 inline void printError(const char *tag) {
     printError(tag, errno);
+}
+
+inline void printError(const string &tag) {
+    printError(tag.c_str(), errno);
 }
 
 inline void exitWithError(const char *tag) {
     printError(tag);
     exit(errno);
+}
+
+inline void exitWithError(const string &tag) {
+    exitWithError(tag.c_str());
 }
 
 inline void shiftElements(unsigned char *from, unsigned int len, int by) {
@@ -154,7 +166,6 @@ inline void initPlatform() {
     }
 #endif
 }
-
 
 
 #endif //TUNSERVER_INCLUDE_H

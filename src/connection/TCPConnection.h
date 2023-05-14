@@ -79,13 +79,13 @@ private:
     unsigned int sendUnacknowledged{}; //the sequence number of next octet/data to send to the client
     unsigned int sendNext{}; //the sequence number of new data to send
     unsigned int sendNewDataSequence{};
+    bool sendBufferHasSpace = true;
     unsigned int retryCount{};
     chrono::duration<long, ratio<1, 1000000000>> rtt{};
     chrono::time_point<chrono::steady_clock, chrono::nanoseconds> lastSendTime{};
     chrono::time_point<chrono::steady_clock, chrono::nanoseconds> lastTimeAcknowledgmentAccepted{};
 
     unsigned int lastAcknowledgedSequence{};
-    chrono::time_point<chrono::steady_clock, chrono::nanoseconds> lastAcknowledgmentSent{};
     unsigned char receiveBuffer[RECEIVE_BUFFER_SIZE]{}; //buffer to collect data from a client
     unsigned int receiveSequence{};
     unsigned int receiveUser{}; //the sequence number of next data
@@ -105,10 +105,6 @@ private:
     inline bool isUpStreamComplete() const;
 
     inline bool isDownStreamComplete() const;
-
-    inline bool canSendToServer() const;
-
-    inline bool canReceiveFromServer() const;
 
     inline void _trimReceiveBuffer();
 
@@ -138,9 +134,10 @@ unsigned int TCPConnection::getReceiveAvailable() const {
 
 void TCPConnection::acknowledgeDelayed(TCPPacket &packet) {
     if (isUpStreamComplete())return;
+    static chrono::time_point<chrono::steady_clock, chrono::nanoseconds> lastAcknowledgmentSent{};
     auto now = chrono::steady_clock::now();
     if ((chrono::duration_cast<chrono::milliseconds>(now - lastAcknowledgmentSent).count() > ACKNOWLEDGE_DELAY &&
-         lastAcknowledgedSequence != receiveNext)  ||
+         lastAcknowledgedSequence != receiveNext) ||
         receiveNext - lastAcknowledgedSequence > mss * 2) {
         packet.setEnds(destination, source);
         packet.clearData();
@@ -154,24 +151,13 @@ void TCPConnection::acknowledgeDelayed(TCPPacket &packet) {
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "readability-convert-member-functions-to-static"
 
-bool TCPConnection::canSendToServer() const {
-//    char buf;
-//    size_t res = send(fd, &buf, 0, 0);
-//    return res == 0;
-    return true;
-}
 
 #pragma clang diagnostic pop
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "readability-convert-member-functions-to-static"
 
-bool TCPConnection::canReceiveFromServer() const {
-//    char buf;
-//    size_t res = read(fd, &buf, 0);
-//    return res == 0;
-    return true;
-}
+
 
 #pragma clang diagnostic pop
 
@@ -201,7 +187,10 @@ void TCPConnection::_trimReceiveBuffer() {
 
 void TCPConnection::trimSendBuffer() {
     auto amt = sendUnacknowledged - sendSequence;
-    if (amt < mss)return;
+    if (amt < mss || getSendAvailable() > mss * 2)return;
+#ifdef  LOGGING
+    ::printf("Trimmed send buffer by %d\n", amt);
+#endif
     shiftElements(sendBuffer + amt, sendNewDataSequence - sendUnacknowledged, -(int) amt);
     sendSequence = sendUnacknowledged;
 }

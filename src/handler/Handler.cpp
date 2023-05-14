@@ -24,7 +24,6 @@ void Handler::handleUpStream() {
 #ifdef LOGGING
     ::printf("Handling up streams\n");
 #endif
-
     while (shouldRun) {
         fd_set copy = tunnelRcv;
         timeval tvCpy = tv;
@@ -128,6 +127,7 @@ void Handler::handleDownStream() {
             if (con->getState() == TCPConnection::CLOSED)continue;
             con->flushDataToClient(packet);
         }
+        usleep(10000);
     }
     unique_lock<mutex> lock(mtx);//todo: remove as not necessary
     downStreamShuttingDown = false;

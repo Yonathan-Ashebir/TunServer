@@ -10,8 +10,16 @@ add_executable(TunServer
         src/handler/Handler.cpp
         src/packet/TCPPacket.cpp
         src/error/Error.cpp)
-if(WIN32)
+if (WIN32)
     target_link_libraries(TunServer wsock32 ws2_32)
-endif()
-add_executable(test src/error/Error.cpp src/Test.cpp )
+endif ()
+add_executable(test src/error/Error.cpp src/Test.cpp
+        src/tunnel/DatagramTunnel.cpp
+        src/packet/TCPPacket.cpp
+        src/error/Error.cpp)
 add_executable(listener src/Listener.c src/TCPRaw.c)
+add_executable(handlerTest src/handler/HandlerTest.cpp
+        src/connection/TCPConnection.cpp
+        src/tunnel/DatagramTunnel.cpp
+        src/packet/TCPPacket.cpp
+        src/error/Error.cpp)

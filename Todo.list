@@ -1,4 +1,7 @@
 - Implement ipv6
-- Implement rtt based rto
+- Improve rtt based rto
 - const getters
 - Implement unordered packets handling
+- Implement auto send ack  when server connection succeeds
+- Smarter buffer usage
+- Robust socket resource utilization

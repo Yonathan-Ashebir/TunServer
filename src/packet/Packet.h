@@ -90,7 +90,7 @@ Packet::Packet(unsigned int size) : maxSize(size) {
 
 Packet::~Packet() {
     delete buffer;
-    ::printf("Packet destroyed");
+    ::printf("Packet destroyed\n");
 }
 
 

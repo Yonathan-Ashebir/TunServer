@@ -14,7 +14,7 @@ int main() {
     if (tunnelFd < 0)exitWithError("Could not create a socket");
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    inet_pton(AF_INET, "192.168.1.5", &addr.sin_addr.s_addr);
+    inet_pton(AF_INET, "192.168.195.64", &addr.sin_addr.s_addr);
     addr.sin_port = htons(3333);
     auto b1 = bind(tunnelFd, reinterpret_cast<const sockaddr *>(&addr), sizeof addr);
     if (b1 < 0)exitWithError("Could not bind");
@@ -22,7 +22,7 @@ int main() {
     ::printf("Waiting for first packet\n");
 
     char buf[3072];
-    socklen_t len;
+    socklen_t len = sizeof (sockaddr_in);
     sockaddr_in from{};
     auto r = recvfrom(tunnelFd, buf, sizeof buf, 0, reinterpret_cast<sockaddr *>(&from), &len);
     if (r < 0)exitWithError("Could not receive from socket");
