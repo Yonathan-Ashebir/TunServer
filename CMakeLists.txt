@@ -3,16 +3,13 @@ project(TunServer)
 
 set(CMAKE_CXX_STANDARD 14)
 
-add_executable(TunServer
+add_executable(tunServer
         src/handler/Main.cpp
         src/connection/TCPConnection.cpp
         src/tunnel/DatagramTunnel.cpp
         src/handler/Handler.cpp
         src/packet/TCPPacket.cpp
         src/error/Error.cpp)
-if (WIN32)
-    target_link_libraries(TunServer wsock32 ws2_32)
-endif ()
 add_executable(test src/error/Error.cpp src/Test.cpp
         src/tunnel/DatagramTunnel.cpp
         src/packet/TCPPacket.cpp
@@ -23,3 +20,9 @@ add_executable(handlerTest src/handler/HandlerTest.cpp
         src/tunnel/DatagramTunnel.cpp
         src/packet/TCPPacket.cpp
         src/error/Error.cpp)
+if (WIN32)
+    target_link_libraries(tunServer wsock32 ws2_32)
+    target_link_libraries(test wsock32 ws2_32)
+    target_link_libraries(listener wsock32 ws2_32)
+    target_link_libraries(handlerTest wsock32 ws2_32)
+endif ()

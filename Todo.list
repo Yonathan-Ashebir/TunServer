@@ -5,3 +5,6 @@
 - Implement auto send ack  when server connection succeeds
 - Smarter buffer usage
 - Robust socket resource utilization
+- Enhance mss
+- Connection life time management
+- Improve Naggle algorism

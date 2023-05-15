@@ -2,12 +2,12 @@
 // Created by yoni_ash on 4/29/23.
 //
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 #ifndef TUNSERVER_HANDLER_H
 #define TUNSERVER_HANDLER_H
 
 #include "../connection/TCPConnection.h"
-
-#define MAX_CONNECTION 200;
 
 class Handler {
 public:
@@ -41,3 +41,5 @@ private:
 
 
 #endif //TUNSERVER_HANDLER_H
+
+#pragma clang diagnostic pop

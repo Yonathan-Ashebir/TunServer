@@ -11,13 +11,13 @@
 
 class Tunnel {
 public:
-    inline explicit Tunnel(int fd) : fd(fd) {}
+    inline explicit Tunnel(socket_t fd) : fd(fd) {}
 
     virtual bool writePacket(Packet &packet) = 0;
 
     virtual bool readPacket(Packet &packet) = 0;
 
-    inline int getFileDescriptor() const { return fd; }
+    inline socket_t getFileDescriptor() const { return fd; }
 
 
 protected:
@@ -25,7 +25,7 @@ protected:
 
     inline static void setPacketLength(Packet &packet, unsigned int len);
 
-    int fd;
+    socket_t fd;
 
 };
 

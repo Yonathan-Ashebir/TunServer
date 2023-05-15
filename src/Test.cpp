@@ -1,17 +1,20 @@
 //
 // Created by yoni_ash on 4/15/23.
 //
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
+
 #include <mutex>
 #include "Include.h"
 #include "./packet/TCPPacket.h"
 #include "./tunnel/DatagramTunnel.h"
 
-#pragma clang diagnostic push
-#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 using namespace std;
 
+#define ipAddr "127.0.0.1"
+
 void printSizeC() {
-    printf("Char size: %lu\n", sizeof(char));
+    printf("Char size: %llu\n", sizeof(char));
 }
 
 
@@ -168,13 +171,20 @@ void measureConnectTime() {
     char c;
     cin >> c;
     measureElapsedTime([] {
-        int sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+        int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
         if (sock < 0)exitWithError("Could not create socket");
         while (true) {
             if (connect(sock, (sockaddr *) &measureConnectTimeAddr, sizeof measureConnectTimeAddr) == -1) {
                 printError("Could not connect");
+#ifdef _WIN32
+                int len;
+                char err = '\0';
+
+#else
                 socklen_t len;
                 int err = 0;
+
+#endif
                 int res = getsockopt(sock, SOL_SOCKET, SO_ERROR, &err, &len);
                 if (res != 0)exitWithError("Failed to get socket options");
                 printError("Socket option error", err);
@@ -197,7 +207,7 @@ void testSocketIO() {
     addr.sin_port = htons(80);
     addr.sin_family = AF_INET;
 
-    int sock = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
+    int sock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (sock < 0)exitWithError("Could not create socket");
     connect(sock, (sockaddr *) &addr, sizeof addr);
     errno = 0;
@@ -207,7 +217,7 @@ void testSocketIO() {
     } else {
         ::printf("Connected Successfully\n");
     }
-    char *buf = "GET / HTTP/1.0\r\n\r\n";
+    const char *buf = "GET / HTTP/1.0\r\n\r\n";
     size_t total = send(sock, buf, 0, 0);
     printError("After send");
     cout << "Total: " << total << endl;
@@ -310,17 +320,48 @@ void UDPSocketTest() {
 }
 
 void tunClientTest() {
-    int sock = socket(AF_INET, SOCK_DGRAM, 0);
-    if (sock < 0)exitWithError("Could not create sockets");
+    socket_t sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (errno != 0)exitWithError("Could not create sockets");
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
-    addr.sin_port = htons(41037);
+    addr.sin_port = htons(3333);
 
     if (connect(sock, (sockaddr *) &addr, sizeof addr) == -1)exitWithError("Could not connect");
     char msg[] = "HELLO";
-    if (send(sock, msg, ::strlen(msg), 0) < strlen(msg))exitWithError("Could not send");
+    if (send(sock, msg, (int) ::strlen(msg), 0) < strlen(msg))exitWithError("Could not send");
+
+}
+
+void testVpnSubscriber() {
+    socket_t sock = socket(AF_INET, SOCK_DGRAM, 0);
+    if (errno != 0)exitWithError("Could not create sockets");
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    inet_pton(AF_INET, ipAddr, &addr.sin_addr.s_addr);
+    addr.sin_port = htons(3333);
+    if (connect(sock, (sockaddr *) &addr, sizeof addr) < 0) {//warn: this might not be appopirate for windows.
+#ifdef _WIN32
+        printError("Could not connect", WSAGetLastError());
+        exit(1);
+#else
+        exitWithError("Could not connect");
+
+#endif
+    }
+
+    DatagramTunnel tunnel(sock);
+
+    TCPPacket packet(3072);
+    addr.sin_port = 55555;
+    packet.setSource(addr);
+    addr.sin_port = 3335;
+    packet.setDestination(addr);
+    packet.makeSyn(1, 0);
+    tunnel.writePacket(packet);
+
 }
 
 [[noreturn]] void udpFlushTest() {
@@ -487,7 +528,8 @@ void startHelloServer() {
 
 
 int main() {
-    udpFlushTest();
+    initPlatform();
+    testVpnSubscriber();
 }
 
 

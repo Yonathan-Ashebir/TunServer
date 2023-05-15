@@ -1,13 +1,20 @@
 //
 // Created by yoni_ash on 5/12/23.
 //
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
+
 #include <csignal>
 #include <condition_variable>
 #include "../Include.h"
 #include "./Handler.h"
 #include "../tunnel/DatagramTunnel.h"
 
+using namespace std;
+
 #define PACKET_SIZE 3072;
+#define IP_ADDR "192.168.99.64"
+
 using namespace std;
 
 void handleSingleConnection() {
@@ -18,7 +25,7 @@ void handleSingleConnection() {
     if (tunnelFd < 0)exitWithError("Could not create a socket");
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    inet_pton(AF_INET, "192.168.71.64", &addr.sin_addr.s_addr);
+    inet_pton(AF_INET, IP_ADDR, &addr.sin_addr.s_addr);
     addr.sin_port = htons(3333);
     auto b1 = bind(tunnelFd, reinterpret_cast<const sockaddr *>(&addr), sizeof addr);
     if (b1 < 0)exitWithError("Could not bind");
@@ -33,7 +40,7 @@ void handleSingleConnection() {
 
     char ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &from.sin_addr.s_addr, ip, sizeof ip);
-    printf("Received %zd bytes from %s:%d and addrLen: %d\n", r, ip, ntohs(from.sin_port), len);
+    printf("Received %d bytes from %s:%d and addrLen: %d\n", r, ip, ntohs(from.sin_port), len);
 
     auto c = connect(tunnelFd, (sockaddr *) &from, len);
     if (c < 0)exitWithError("Could not connect socket");
@@ -48,7 +55,7 @@ void handleSingleConnection() {
     fd_set readSet;
     fd_set writeSet;
     fd_set errorSet;
-    int maxFd{};
+    socket_t maxFd{};
     TCPPacket packet(3072);
     ::printf("Waiting for a syn\n");
     do {
@@ -103,7 +110,7 @@ void handleDownload() {
     if (tunnelFd < 0)exitWithError("Could not create a socket");
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    inet_pton(AF_INET, "192.168.238.64", &addr.sin_addr.s_addr);
+    inet_pton(AF_INET, IP_ADDR, &addr.sin_addr.s_addr);
     addr.sin_port = htons(3333);
     auto b1 = bind(tunnelFd, reinterpret_cast<const sockaddr *>(&addr), sizeof addr);
     if (b1 < 0)exitWithError("Could not bind");
@@ -118,7 +125,7 @@ void handleDownload() {
 
     char ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &from.sin_addr.s_addr, ip, sizeof ip);
-    printf("Received %zd bytes from %s:%d and addrLen: %d\n", r, ip, ntohs(from.sin_port), socklen);
+    printf("Received %d bytes from %s:%d and addrLen: %d\n", r, ip, ntohs(from.sin_port), socklen);
 
     auto c = connect(tunnelFd, (sockaddr *) &from, socklen);
     if (c < 0)exitWithError("Could not connect socket");
@@ -139,13 +146,15 @@ void handleDownload() {
 
     sockaddr_in server = firstSynPacket.getDestination();
     sockaddr_in client = firstSynPacket.getSource();
+    inet_ntop(AF_INET, &(server.sin_addr.s_addr), ip, sizeof ip);
+    printf("Forwarding to %s:%d\n",  ip, ntohs(from.sin_port));
     bool isOpen = true;
     unsigned retryCount = 0;
 
     unsigned receiveNext = firstSynPacket.getSequenceNumber() + 1;
 
     unsigned int sendLength = 65535;
-    unsigned char sendBuffer[sendLength];
+    BUFFER_BYTE sendBuffer[sendLength];
     unsigned sendSequence = 1;
     unsigned sendUnacknowledged = sendSequence, sendNext = sendSequence, sendNewData = sendSequence;
     bool serverReadFinished = false;
@@ -173,7 +182,7 @@ void handleDownload() {
     mutex mtx{};
     thread receiveFromClient{[&] {
         TCPPacket receivingPacket(3072);
-        unsigned char buf[3072];
+        BUFFER_BYTE buf[3072];
         while (isOpen) {
             tunnel.readPacket(receivingPacket);
             //No reset demanding or other cases are required here
@@ -313,3 +322,4 @@ int main() {
     handleDownload();
     return 0;
 }
+#pragma clang diagnostic pop

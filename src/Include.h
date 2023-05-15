@@ -27,12 +27,13 @@
 #include <sys/types.h>
 
 //#define STRICT_MODE
-#define LOGGING
+//#define LOGGING
 
 #ifdef _WIN32
 //#define WIN32_LEAN_AND_MEAN
 //#include <windows.h>
-#define bzero(b,len) (memset((b), '\0', (len)), (void) 0)
+#define bzero(b, len) (memset((b), '\0', (len)), (void) 0)
+
 #include <winsock2.h>
 #include <ws2tcpip.h>
 
@@ -41,12 +42,12 @@
 #define socket_t SOCKET
 #define SHUT_WR SD_SEND
 #define SHUT_RD SD_RECEIVE
+#define BUFFER_BYTE char
 
-struct iphdr
-{
+struct iphdr {
 #if __BYTE_ORDER == __LITTLE_ENDIAN
-    unsigned int ihl:4;
-    unsigned int version:4;
+    unsigned char ihl: 4;
+    unsigned char version: 4;
 #elif __BYTE_ORDER == __BIG_ENDIAN
     unsigned int version:4;
     unsigned int ihl:4;
@@ -65,22 +66,21 @@ struct iphdr
     /*The options start here. */
 };
 
-struct tcphdr
-{
+struct tcphdr {
     uint16_t source;
     uint16_t dest;
     uint32_t seq;
     uint32_t ack_seq;
 #  if __BYTE_ORDER == __LITTLE_ENDIAN
-    uint16_t res1:4;
-    uint16_t doff:4;
-    uint16_t fin:1;
-    uint16_t syn:1;
-    uint16_t rst:1;
-    uint16_t psh:1;
-    uint16_t ack:1;
-    uint16_t urg:1;
-    uint16_t res2:2;
+    uint16_t res1: 4;
+    uint16_t doff: 4;
+    uint16_t fin: 1;
+    uint16_t syn: 1;
+    uint16_t rst: 1;
+    uint16_t psh: 1;
+    uint16_t ack: 1;
+    uint16_t urg: 1;
+    uint16_t res2: 2;
 #  elif __BYTE_ORDER == __BIG_ENDIAN
     uint16_t doff:4;
     uint16_t res1:4;
@@ -111,6 +111,7 @@ struct tcphdr
 
 #define CLOSE close
 #define socket_t int
+#define BUFFER_BYTE unsigned char
 
 #endif
 
@@ -142,8 +143,10 @@ inline void exitWithError(const char *tag) {
 inline void exitWithError(const string &tag) {
     exitWithError(tag.c_str());
 }
-
-inline void shiftElements(unsigned char *from, unsigned int len, int by) {
+template<typename T>
+inline void shiftElements(T *from, unsigned int len, int by) {
+    len *= sizeof (T);
+    by *= sizeof (T);
     unsigned char temp[len];
     memcpy(temp, from, len);
     memcpy(from + by, temp, len);

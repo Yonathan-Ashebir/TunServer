@@ -30,7 +30,7 @@ socket_t createTcpSocket() {
     result = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
 #endif
 
-    int val = 1;
+//    int val = 1;
 //    if (setsockopt(result, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)
 //        exitWithError("Could not disable Nagle algorithm");
 
@@ -94,7 +94,7 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
                     const unsigned int newLen = (65535 << windowShift) * SEND_WINDOW_SCALE;
                     if (!sendBuffer || sendLength < newLen) {
                         delete sendBuffer;
-                        sendBuffer = new unsigned char[newLen];
+                        sendBuffer = new BUFFER_BYTE[newLen];
                         sendLength = newLen;
                     }
 
@@ -184,6 +184,16 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
                                 ::printf("Accepted acknowledgment(%d) <= sendUnacknowledged(%d)\n", ack,
                                          sendUnacknowledged);
 #endif
+//                            const auto space = sendUnacknowledged - sendSequence;
+//                            const auto available = getSendAvailable();
+//                            if (available > 0) {
+//                                printf("Send buffer was not filled well when an acknowledgement was accepted: %d/%d\n",
+//                                       available, sendLength);
+//                            }
+//                            if (available <= 2 * mss && space >= mss) {
+//                                printf("Space(%d) could be re-used and added to send buffer(%d) but have not been\n",
+//                                       space, available);
+//                            }
                             sendUnacknowledged = max(sendUnacknowledged, ack);
                             retryCount = 0;
                         }
@@ -249,12 +259,13 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
 
 }
 
-void TCPConnection::receiveFromServer(TCPPacket &packet) {
+/*Returns whether it can receive more*/
+bool TCPConnection::receiveFromServer(TCPPacket &packet) {
     //Only matter if state == ESTABLISHED
-    if (state != ESTABLISHED)return;
+    if (state != ESTABLISHED)return false;
     trimSendBuffer();
     auto amt = getSendAvailable();
-    if (amt == 0)return;
+    if (amt == 0)return false;
     int total = (int) recv(fd, reinterpret_cast<char *>(sendBuffer + sendNewDataSequence - sendSequence), (int) amt,
                            0);//warn:not logically safe
     if (total > 0 && total <= amt) {
@@ -278,6 +289,7 @@ void TCPConnection::receiveFromServer(TCPPacket &packet) {
     }
 
     flushDataToClient(packet);
+    return getSendAvailable() > 0;
 }
 
 
@@ -367,6 +379,7 @@ void TCPConnection::flushDataToClient(TCPPacket &packet) {
             tunnel.writePacket(packet);
         }
     };
+    //todo: this seems to inefficiently send new data that did not accumulate to mss
     if (sendUnacknowledged < sendNewDataSequence && diff.count() / 4 > rtt.count()) {
         if (retryCount == SEND_MAX_RETRIES) {
             closeConnection();

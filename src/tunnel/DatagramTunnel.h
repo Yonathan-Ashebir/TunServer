@@ -14,7 +14,7 @@
 
 class DatagramTunnel : public Tunnel {
 public:
-    explicit DatagramTunnel(int fd);
+    explicit DatagramTunnel(socket_t fd);
 
     inline bool writePacket(Packet &packet) override;
 

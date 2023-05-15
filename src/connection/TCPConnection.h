@@ -52,7 +52,7 @@ public:
 
     void receiveFromClient(TCPPacket &);
 
-    void receiveFromServer(TCPPacket &);
+    bool receiveFromServer(TCPPacket &packet);
 
     void flushDataToServer(TCPPacket &);
 
@@ -71,7 +71,7 @@ private:
     sockaddr_in destination{};
 
     unsigned short mss{};
-    unsigned char *sendBuffer{}; //buffer to send data to a client
+    BUFFER_BYTE *sendBuffer{}; //buffer to send data to a client
     unsigned int sendLength{}; //size of buffer
     unsigned int sendWindow{}; // max size of data for next segment
     unsigned char windowShift{};
@@ -86,7 +86,7 @@ private:
     chrono::time_point<chrono::steady_clock, chrono::nanoseconds> lastTimeAcknowledgmentAccepted{};
 
     unsigned int lastAcknowledgedSequence{};
-    unsigned char receiveBuffer[RECEIVE_BUFFER_SIZE]{}; //buffer to collect data from a client
+    BUFFER_BYTE receiveBuffer[RECEIVE_BUFFER_SIZE]{}; //buffer to collect data from a client
     unsigned int receiveSequence{};
     unsigned int receiveUser{}; //the sequence number of next data
     // to be consumed by the user or in our case sends to the application server
@@ -186,12 +186,12 @@ void TCPConnection::_trimReceiveBuffer() {
 }
 
 void TCPConnection::trimSendBuffer() {
-    auto amt = sendUnacknowledged - sendSequence;
-    if (amt < mss || getSendAvailable() > mss * 2)return;
+    auto space = sendUnacknowledged - sendSequence;
+    if (space < mss || getSendAvailable() > mss * 2)return;
 #ifdef  LOGGING
-    ::printf("Trimmed send buffer by %d\n", amt);
+    ::printf("Trimmed send buffer by %d\n", space);
 #endif
-    shiftElements(sendBuffer + amt, sendNewDataSequence - sendUnacknowledged, -(int) amt);
+    shiftElements(sendBuffer + space, sendNewDataSequence - sendUnacknowledged, -(int) space);
     sendSequence = sendUnacknowledged;
 }
 

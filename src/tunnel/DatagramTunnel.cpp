@@ -5,6 +5,6 @@
 #include "DatagramTunnel.h"
 
 
-DatagramTunnel::DatagramTunnel(int fd) : Tunnel(fd) {
+DatagramTunnel::DatagramTunnel(socket_t fd) : Tunnel(fd) {
 
 }

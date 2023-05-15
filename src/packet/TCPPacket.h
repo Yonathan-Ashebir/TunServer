@@ -90,13 +90,13 @@ public:
 
     unsigned char getOption(unsigned char kind, unsigned char *data, unsigned char len);
 
-    inline unsigned int appendData(unsigned char *data, unsigned int len);
+    inline unsigned int appendData(void *data, unsigned int len);
 
     inline void clearData();
 
     inline unsigned short getDataLength() const;
 
-    inline unsigned short copyDataTo(unsigned char *buff, unsigned short len);
+    inline unsigned short copyDataTo(void *buff, unsigned short len);
 
     inline void makeSyn(unsigned int seq, unsigned int ack);
 
@@ -338,7 +338,7 @@ unsigned short TCPPacket::getMSS() {
     return max(ntohs(result), (unsigned short) DEFAULT_MSS);
 }
 
-unsigned int TCPPacket::appendData(unsigned char *data, unsigned int len) {
+unsigned int TCPPacket::appendData(void *data, unsigned int len) {
     unsigned int total = min(len, available());
     memcpy(buffer + getLength(), data, total);
     setLength(getLength() + total);
@@ -353,7 +353,7 @@ unsigned short TCPPacket::getDataLength() const {
     return getLength() - getTcpHeaderLength() - getIpHeaderLength();
 }
 
-unsigned short TCPPacket::copyDataTo(unsigned char *buff, unsigned short len) {
+unsigned short TCPPacket::copyDataTo(void *buff, unsigned short len) {
     unsigned short total = min(len, getDataLength());
     memcpy(buff, buffer + getIpHeaderLength() + getTcpHeaderLength(), total);
     return total;

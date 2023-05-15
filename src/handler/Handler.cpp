@@ -15,21 +15,32 @@ using namespace std;
 void Handler::handleUpStream() {
     TCPPacket packet(PACKET_SIZE);
 
-    int tunnelFd = tunnel.getFileDescriptor();
-    int maxFdTunnel = tunnelFd + 1;
+    socket_t tunnelFd = tunnel.getFileDescriptor();
+    socket_t maxFdTunnel = tunnelFd + 1;
     timeval tv{0, 10000};
 
-    fd_set tunnelRcv;
+    fd_set tunnelRcv{};
+    FD_ZERO(&tunnelRcv);
     FD_SET(tunnelFd, &tunnelRcv);
 #ifdef LOGGING
-    ::printf("Handling up streams\n");
+    ::printf("Handling up streams, tunnelFd: %llu\n", tunnelFd);
 #endif
     while (shouldRun) {
         fd_set copy = tunnelRcv;
         timeval tvCpy = tv;
-        int count = select(maxFdTunnel, &copy, nullptr, nullptr, &tvCpy);
-//        int count = 1;
+
+        int count = select(maxFdTunnel, &copy, nullptr, nullptr, // NOLINT(cppcoreguidelines-narrowing-conversions)
+                           &tvCpy); // NOLINT(cppcoreguidelines-narrowing-conversions)
+
+#ifdef _WIN32
+        if (count == SOCKET_ERROR) {
+            printError("Could not use select on tunnel's file descriptor", WSAGetLastError());
+            exit(1);
+        }
+#else
         if (count < 0)exitWithError("Could not use select on tunnel's file descriptor");
+
+#endif
 
         if (count && tunnel.readPacket(packet)) {
             char srcIp[INET_ADDRSTRLEN];
@@ -105,19 +116,34 @@ void Handler::handleDownStream() {
     FD_ZERO(&err);
     timeval tv{0, 10000};
 
+#ifdef _WIN32
+    //todo: find a better way to resolve windows can not select fd_set with zero sockets set
+    socket_t testSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    FD_SET(testSock, &rcv);
+#endif
+
 #ifdef LOGGING
     ::printf("Handling down streams\n");
 #endif
     while (shouldRun) {
         fd_set rcvCpy = rcv;
         timeval tvCpy = tv;
-        int count = select(maxFd, &rcvCpy, nullptr, nullptr, &tvCpy);
+        int count = select(maxFd, &rcvCpy, nullptr, nullptr, &tvCpy); // NOLINT(cppcoreguidelines-narrowing-conversions)
+#ifdef _WIN32
+        if (count == SOCKET_ERROR) {
+            printError("Could not use select on one of the socket's file descriptor", WSAGetLastError());
+            exit(1);
+        }
+#else
         if (count < 0)exitWithError("Could not use select on one of the socket's file descriptor");
+
+#endif
+        bool atleastOneHasSpace = false;
         for (unsigned int ind = 0; ind < connectionsCount && count > 0; ind++) {
             auto con = connections[ind];
             if (con->getState() == TCPConnection::CLOSED)continue;
             if (FD_ISSET(con->getFd(), &rcvCpy)) {
-                con->receiveFromServer(packet);
+                atleastOneHasSpace |= con->receiveFromServer(packet);
                 count--;
             }
         }
@@ -127,7 +153,9 @@ void Handler::handleDownStream() {
             if (con->getState() == TCPConnection::CLOSED)continue;
             con->flushDataToClient(packet);
         }
-        usleep(10000);
+        /*No need to check effect of flushing as things are immediate in networking*/
+//        usleep(100);
+        if (!atleastOneHasSpace)usleep(1000);
     }
     unique_lock<mutex> lock(mtx);//todo: remove as not necessary
     downStreamShuttingDown = false;
