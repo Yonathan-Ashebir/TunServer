@@ -2,11 +2,11 @@
 // Created by yoni_ash on 4/27/23.
 //
 
+#ifndef TUNSERVER_TCPCONNECTION_H
+#define TUNSERVER_TCPCONNECTION_H
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCUnusedStructInspection"
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
-#ifndef TUNSERVER_TCPCONNECTION_H
-#define TUNSERVER_TCPCONNECTION_H
 
 #pragma once
 
@@ -156,7 +156,6 @@ void TCPConnection::acknowledgeDelayed(TCPPacket &packet) {
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "readability-convert-member-functions-to-static"
-
 
 
 #pragma clang diagnostic pop

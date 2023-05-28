@@ -1,5 +1,7 @@
 #ifndef _WIN32
+
 #include <csignal>
+
 #endif
 
 #include "../Include.h"
@@ -16,7 +18,8 @@ int main() {
     if (errno != 0)exitWithError("Could not create a socket");
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    inet_pton(AF_INET, " 192.168.115.64", &addr.sin_addr.s_addr);
+//    inet_pton(AF_INET, "192.168.115.64", &addr.sin_addr.s_addr);
+    addr.sin_addr.s_addr = INADDR_ANY;
     addr.sin_port = htons(3333);
     auto b1 = bind(tunnelFd, reinterpret_cast<const sockaddr *>(&addr), sizeof addr);
     if (b1 < 0)exitWithError("Could not bind");

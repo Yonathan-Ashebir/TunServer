@@ -8,6 +8,7 @@
 #include "Include.h"
 #include "./packet/TCPPacket.h"
 #include "./tunnel/DatagramTunnel.h"
+#include "./connection/TCPConnection.h"
 
 using namespace std;
 
@@ -526,10 +527,111 @@ void startHelloServer() {
     }
 }
 
+void testSocketReuseAddress() {
+    socket_t sock1 = socket(AF_INET, SOCK_DGRAM, 0);
+    socket_t sock2 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    socket_t sock3 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    socket_t sock4 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    int optVal = 1;
+    socklen_t len = sizeof optVal;
+    if (setsockopt(sock1, SOL_SOCKET, SO_REUSEADDR, &optVal, len) < 0)
+        exitWithError("Could not set reuse address on sock1");
+    if (setsockopt(sock2, SOL_SOCKET, SO_REUSEADDR, &optVal, len) < 0)
+        exitWithError("Could not set reuse address on sock2");
+    if (setsockopt(sock3, SOL_SOCKET, SO_REUSEADDR, &optVal, len) < 0)
+        exitWithError("Could not set reuse address on sock3");
+    if (setsockopt(sock4, SOL_SOCKET, SO_REUSEADDR, &optVal, len) < 0)
+        exitWithError("Could not set reuse address on sock4");
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(3333);
+    //NO difference between the two? there was difference in linux? can connect without INADDR_ANY
+    addr.sin_addr.s_addr = INADDR_ANY;
+//    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
+
+    if (bind(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0) exitWithError("Could not bind sock1");
+    if (bind(sock2, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0) exitWithError("Could not bind sock2");
+    if (bind(sock3, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0)
+        exitWithError("Could not bind sock3");//Can not bind after listening starts
+
+    inet_pton(AF_INET, "1.1.1.1", &addr.sin_addr.s_addr);
+    addr.sin_port = htons(80);
+    if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0)
+        exitWithError("Could not connect sock1 to remote server");
+    ::printf("Sock1 connected\n");
+
+    if (listen(sock2, 20) < 0)exitWithError("Sock2 could not listen");
+
+    if (connect(sock3, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0)
+        exitWithError("Could not connect sock3 to remote server");
+    ::printf("Sock2 connected\n");
+
+    inet_ptofn(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
+    addr.sin_port = htons(3334);
+    if (bind(sock4, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0) exitWithError("Could not bind sock4");
+    addr.sin_port = htons(3333);
+    if (connect(sock4, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0)
+        exitWithError("Could not connect sock4 to the listening socket");
+
+    //Won't work
+//    if (connect(sock3, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0)
+//        exitWithError("Could not connect sock3 to the listening socket");
+
+    socket_t accepted{};
+    len = sizeof addr;
+    if ((accepted = accept(sock2, reinterpret_cast<sockaddr *>(&addr), &len)) < 0)
+        exitWithError("Could not accept socket on sock2");
+    char addrName[INET_ADDRSTRLEN];
+    inet_ntop(AF_INET, &addr.sin_addr, addrName, len);//info: not checking for errors
+    ::printf("Accepted client from %s:%d\n", addrName, ntohs(addr.sin_port));
+
+    //Won't be able to accept sock3
+    if ((accepted = accept(sock2, reinterpret_cast<sockaddr *>(&addr), &len)) < 0)
+        exitWithError("Could not accept socket on sock2");
+    inet_ntop(AF_INET, &addr.sin_addr, addrName, len);//info: not checking for errors
+    ::printf("Accepted client from %s:%d\n", addrName, ntohs(addr.sin_port));
+}
+
+void testTCPSocketReconnect() {
+    int optVal = 1;
+    socklen_t len = sizeof optVal;
+    socket_t sock1 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (setsockopt(sock1, SOL_SOCKET, SO_REUSEADDR, &optVal, len) < 0)
+        exitWithError("Could not set reuse address on sock1");
+
+    sockaddr_in addr{};
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(3333);
+    //NO difference between the two
+    addr.sin_addr.s_addr = INADDR_ANY;
+//    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
+
+
+    if (bind(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0) exitWithError("Could not bind sock1");
+
+    addr.sin_port = htons(80);
+    inet_pton(AF_INET, "1.1.1.1", &addr.sin_addr.s_addr);
+
+    if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0)
+        exitWithError("Could not connect sock4 to the listening socket");
+    ::printf("Primary connection succeeded\n");
+
+    addr.sin_family = AF_UNSPEC;
+    if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0)
+        exitWithError("Could not connect sock4 to the listening socket");
+    ::printf("Disconnected successfully\n");
+    addr.sin_family = AF_INET;
+
+    if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0)
+        exitWithError("Could not connect sock4 to the listening socket");
+    ::printf("Secondary connection succeeded\n");
+
+}
 
 int main() {
     initPlatform();
-    testVpnSubscriber();
+    testSocketReuseAddress();
 }
 
 
