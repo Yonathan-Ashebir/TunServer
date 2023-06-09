@@ -7,7 +7,7 @@
 #ifndef TUNSERVER_HANDLER_H
 #define TUNSERVER_HANDLER_H
 
-#include "../connection/TCPConnection.h"
+#include "../session/TCPSession.h"
 
 class Handler {
 public:
@@ -22,7 +22,7 @@ private:
     mutex mtx;
     unsigned int connectionsCount = 0;
     unsigned int connectionsSize = 20;
-    TCPConnection **connections = new TCPConnection *[connectionsSize];
+    TCPSession **connections = new TCPSession *[connectionsSize];
     bool shouldRun = false;
     bool upStreamShuttingDown = false;
     bool downStreamShuttingDown = false;

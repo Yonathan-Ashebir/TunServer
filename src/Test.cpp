@@ -8,7 +8,7 @@
 #include "Include.h"
 #include "./packet/TCPPacket.h"
 #include "./tunnel/DatagramTunnel.h"
-#include "./connection/TCPConnection.h"
+#include "./session/TCPSession.h"
 
 using namespace std;
 
@@ -528,11 +528,15 @@ void startHelloServer() {
 }
 
 void testSocketReuseAddress() {
-    socket_t sock1 = socket(AF_INET, SOCK_DGRAM, 0);
+    socket_t sock1 = socket(AF_INET, SOCK_STREAM, 0);
     socket_t sock2 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     socket_t sock3 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     socket_t sock4 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+#ifdef  _WIN32
+    char optVal = 1;
+#else
     int optVal = 1;
+#endif
     socklen_t len = sizeof optVal;
     if (setsockopt(sock1, SOL_SOCKET, SO_REUSEADDR, &optVal, len) < 0)
         exitWithError("Could not set reuse address on sock1");
@@ -545,7 +549,7 @@ void testSocketReuseAddress() {
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(3333);
+    addr.sin_port = htons(33332);
     //NO difference between the two? there was difference in linux? can connect without INADDR_ANY
     addr.sin_addr.s_addr = INADDR_ANY;
 //    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
@@ -563,14 +567,16 @@ void testSocketReuseAddress() {
 
     if (listen(sock2, 20) < 0)exitWithError("Sock2 could not listen");
 
+    /*Does not work without this on windows*/
+    inet_pton(AF_INET, "142.250.185.36", &addr.sin_addr.s_addr);
     if (connect(sock3, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0)
         exitWithError("Could not connect sock3 to remote server");
-    ::printf("Sock2 connected\n");
+    ::printf("Sock3 connected\n");
 
-    inet_ptofn(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
-    addr.sin_port = htons(3334);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
+    addr.sin_port = htons(33342);
     if (bind(sock4, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0) exitWithError("Could not bind sock4");
-    addr.sin_port = htons(3333);
+    addr.sin_port = htons(33332);
     if (connect(sock4, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0)
         exitWithError("Could not connect sock4 to the listening socket");
 
@@ -594,7 +600,11 @@ void testSocketReuseAddress() {
 }
 
 void testTCPSocketReconnect() {
+#ifdef  _WIN32
+    char optVal = 1;
+#else
     int optVal = 1;
+#endif
     socklen_t len = sizeof optVal;
     socket_t sock1 = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
     if (setsockopt(sock1, SOL_SOCKET, SO_REUSEADDR, &optVal, len) < 0)
@@ -615,7 +625,7 @@ void testTCPSocketReconnect() {
 
     if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0)
         exitWithError("Could not connect sock4 to the listening socket");
-    ::printf("Primary connection succeeded\n");
+    ::printf("Primary session succeeded\n");
 
     addr.sin_family = AF_UNSPEC;
     if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0)
@@ -625,13 +635,23 @@ void testTCPSocketReconnect() {
 
     if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) < 0)
         exitWithError("Could not connect sock4 to the listening socket");
-    ::printf("Secondary connection succeeded\n");
+    ::printf("Secondary session succeeded\n");
 
+}
+
+#define cat(a, b) a ## b
+#define xCat(a, b) cat(a,b)
+
+#define add(x,y) (x+y)
+#define xAdd(x,y) add(x,y)
+void testPreProcessor() {
+    ::printf("Result of cat %d\n", xCat(cat(1,2), 3));
+    ::printf("Result of add %d\n", add(add(add(1,1), 1),1));
 }
 
 int main() {
     initPlatform();
-    testSocketReuseAddress();
+    testPreProcessor();
 }
 
 

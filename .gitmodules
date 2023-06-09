@@ -1,3 +1,6 @@
 [submodule "external/curl"]
 	path = external/curl
 	url = git@github.com:Yonathan-Ashebir/curl.git
+[submodule "external/stun-msg"]
+	path = external/stun
+	url = https://github.com/balena/stun-msg.git

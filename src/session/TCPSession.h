@@ -2,8 +2,8 @@
 // Created by yoni_ash on 4/27/23.
 //
 
-#ifndef TUNSERVER_TCPCONNECTION_H
-#define TUNSERVER_TCPCONNECTION_H
+#ifndef TUNSERVER_TCPSESSION_H
+#define TUNSERVER_TCPSESSION_H
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCUnusedStructInspection"
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
@@ -23,7 +23,7 @@ using namespace std;
 
 constexpr chrono::nanoseconds MAX_RTT(5000000000);
 
-class TCPConnection {
+class TCPSession {
 
 public:
     enum states {
@@ -36,13 +36,13 @@ public:
     };
 
 
-    TCPConnection(Tunnel &tunnel, socket_t &maxFd,
-                  fd_set *rcv, fd_set
+    TCPSession(Tunnel &tunnel, socket_t &maxFd,
+               fd_set *rcv, fd_set
                   *snd,
-                  fd_set *err
+               fd_set *err
     );
 
-    ~TCPConnection();
+    ~TCPSession();
 
     inline states getState();
 
@@ -115,11 +115,11 @@ private:
     inline void acknowledgeDelayed(TCPPacket &packet);
 };
 
-TCPConnection::states TCPConnection::getState() {
+TCPSession::states TCPSession::getState() {
     return state;
 }
 
-void TCPConnection::closeConnection() {
+void TCPSession::closeConnection() {
     //todo: might affect opposite stream
     FD_CLR(fd, receiveSet);
     FD_CLR(fd, sendSet);
@@ -128,11 +128,11 @@ void TCPConnection::closeConnection() {
     state = CLOSED;
 }
 
-unsigned int TCPConnection::getReceiveAvailable() const {
+unsigned int TCPSession::getReceiveAvailable() const {
     return RECEIVE_BUFFER_SIZE - receiveNext + receiveSequence;
 }
 
-void TCPConnection::acknowledgeDelayed(TCPPacket &packet) {
+void TCPSession::acknowledgeDelayed(TCPPacket &packet) {
     if (isUpStreamComplete())return;
     static chrono::time_point<chrono::steady_clock, chrono::nanoseconds> lastAcknowledgmentSent{};
     auto now = chrono::steady_clock::now();
@@ -160,31 +160,31 @@ void TCPConnection::acknowledgeDelayed(TCPPacket &packet) {
 
 #pragma clang diagnostic pop
 
-unsigned int TCPConnection::getSendAvailable() const {
+unsigned int TCPSession::getSendAvailable() const {
     return sendLength - sendNewDataSequence + sendSequence;
 }
 
-bool TCPConnection::isUpStreamComplete() const {
+bool TCPSession::isUpStreamComplete() const {
     return clientReadFinished && receiveUser >= receiveNext - 1;
 }
 
-bool TCPConnection::isDownStreamComplete() const {
+bool TCPSession::isDownStreamComplete() const {
     return serverReadFinished && sendUnacknowledged == sendNewDataSequence;
 }
 
-void TCPConnection::trimReceiveBuffer() {
+void TCPSession::trimReceiveBuffer() {
     if (receiveUser - receiveSequence < mss)return;
     _trimReceiveBuffer();
 }
 
-void TCPConnection::_trimReceiveBuffer() {
+void TCPSession::_trimReceiveBuffer() {
     if (receiveUser == receiveSequence)return;
     unsigned int amt = receiveUser - receiveSequence;
     shiftElements(receiveBuffer + amt, receiveNext - receiveUser, -(int) amt);
     receiveSequence = receiveNext;
 }
 
-void TCPConnection::trimSendBuffer() {
+void TCPSession::trimSendBuffer() {
     auto space = sendUnacknowledged - sendSequence;
     if (space < mss || getSendAvailable() > mss * 2)return;
 #ifdef  LOGGING
@@ -194,15 +194,15 @@ void TCPConnection::trimSendBuffer() {
     sendSequence = sendUnacknowledged;
 }
 
-bool TCPConnection::canHandle(TCPPacket &packet) {
+bool TCPSession::canHandle(TCPPacket &packet) {
     return packet.isFrom(source);
 }
 
-socket_t TCPConnection::getFd() const {
+socket_t TCPSession::getFd() const {
     return fd;
 }
 
 
-#endif //TUNSERVER_TCPCONNECTION_H
+#endif //TUNSERVER_TCPSESSION_H
 
 #pragma clang diagnostic pop

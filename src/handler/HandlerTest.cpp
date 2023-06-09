@@ -62,14 +62,14 @@ void handleSingleConnection() {
         tunnel.readPacket(packet);
     } while (!packet.isSyn());
     ::printf("First Syn received\n");
-    TCPConnection connection(tunnel, maxFd, &readSet, &writeSet, &errorSet);
+    TCPSession connection(tunnel, maxFd, &readSet, &writeSet, &errorSet);
     connection.receiveFromClient(packet);
 
     auto t1 = thread{[&tunnel, &connection] {
         TCPPacket packet(3072);
         while (true) {
             tunnel.readPacket(packet);
-            if (connection.getState() == TCPConnection::CLOSED || connection.canHandle(packet)) {
+            if (connection.getState() == TCPSession::CLOSED || connection.canHandle(packet)) {
                 connection.receiveFromClient(packet);
             }
             connection.flushDataToServer(packet);
@@ -164,7 +164,7 @@ void handleDownload() {
     firstSynPacket.swapEnds();
     firstSynPacket.makeNormal(sendUnacknowledged, receiveNext);
     firstSynPacket.makeSyn(sendUnacknowledged, receiveNext);
-    //No need to accept acknowledgement, the test is under reliable network connection
+    //No need to accept acknowledgement, the test is under reliable network session
     sendSequence++;
     sendUnacknowledged++;
     sendNext++;

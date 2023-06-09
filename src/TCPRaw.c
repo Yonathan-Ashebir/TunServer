@@ -6,10 +6,64 @@
 #include <unistd.h>
 #include <string.h>
 #include <time.h>
-#include <arpa/inet.h>
-#include <sys/socket.h>
-#include <netinet/ip.h>
-#include <netinet/tcp.h>
+#include <winsock2.h>
+#include <ws2tcpip.h>
+
+struct iphdr {
+#if __BYTE_ORDER == __LITTLE_ENDIAN
+    unsigned char ihl: 4;
+    unsigned char version: 4;
+#elif __BYTE_ORDER == __BIG_ENDIAN
+    unsigned int version:4;
+    unsigned int ihl:4;
+#else
+# error        "Please fix <bits/endian.h>"
+#endif
+    unsigned char tos;
+    unsigned short tot_len;
+    unsigned short id;
+    unsigned short frag_off;
+    unsigned char ttl;
+    unsigned char protocol;
+    unsigned short check;
+    unsigned int saddr;
+    unsigned int daddr;
+    /*The options start here. */
+};
+
+struct tcphdr {
+    unsigned short source;
+    unsigned short dest;
+    unsigned int seq;
+    unsigned int ack_seq;
+#  if __BYTE_ORDER == __LITTLE_ENDIAN
+    unsigned short res1: 4;
+    unsigned short doff: 4;
+    unsigned short fin: 1;
+    unsigned short syn: 1;
+    unsigned short rst: 1;
+    unsigned short psh: 1;
+    unsigned short ack: 1;
+    unsigned short urg: 1;
+    unsigned short res2: 2;
+#  elif __BYTE_ORDER == __BIG_ENDIAN
+    unsigned short doff:4;
+    unsigned short res1:4;
+    unsigned short res2:2;
+    unsigned short urg:1;
+    unsigned short ack:1;
+    unsigned short psh:1;
+    unsigned short rst:1;
+    unsigned short syn:1;
+    unsigned short fin:1;
+#  else
+#   error "Adjust your <bits/endian.h> defines"
+#  endif
+    unsigned short window;
+    unsigned short check;
+    unsigned short urg_ptr;
+};
+
 
 // pseudo header needed for tcp header checksum calculation
 struct pseudo_header {
@@ -99,7 +153,7 @@ void create_syn_packet(struct sockaddr_in *src, struct sockaddr_in *dst, char **
     // ---- set mss ----
     datagram[optionsOffset] = 0x02;
     datagram[optionsOffset + 1] = 0x04;
-    int16_t mss = htons(1460); // mss value
+    unsigned short mss = htons(1460); // mss value
     memcpy(datagram + optionsOffset + 2, &mss, sizeof(mss));
     // ---- enable SACK ----
     datagram[optionsOffset + 4] = 0x04;
@@ -132,7 +186,7 @@ void create_syn_packet(struct sockaddr_in *src, struct sockaddr_in *dst, char **
 }
 
 void
-create_ack_packet(struct sockaddr_in *src, struct sockaddr_in *dst, int32_t seq, int32_t ack_seq, char **out_packet,
+create_ack_packet(struct sockaddr_in *src, struct sockaddr_in *dst, int seq, int ack_seq, char **out_packet,
                   int *out_packet_len) {
     // datagram to represent the packet
     char *datagram = calloc(DATAGRAM_LEN, sizeof(char));
@@ -191,7 +245,7 @@ create_ack_packet(struct sockaddr_in *src, struct sockaddr_in *dst, int32_t seq,
     free(pseudogram);
 }
 
-void create_data_packet(struct sockaddr_in *src, struct sockaddr_in *dst, int32_t seq, int32_t ack_seq, char *data,
+void create_data_packet(struct sockaddr_in *src, struct sockaddr_in *dst, int seq, int ack_seq, char *data,
                         int data_len, char **out_packet, int *out_packet_len) {
     // datagram to represent the packet
     char *datagram = calloc(DATAGRAM_LEN, sizeof(char));
@@ -254,12 +308,12 @@ void create_data_packet(struct sockaddr_in *src, struct sockaddr_in *dst, int32_
     free(pseudogram);
 }
 
-void read_seq_and_ack(const char *packet, uint32_t *seq, uint32_t *ack) {
+void read_seq_and_ack(const char *packet, unsigned int *seq, unsigned int *ack) {
     // read sequence number
-    uint32_t seq_num;
+    unsigned int seq_num;
     memcpy(&seq_num, packet + 24, 4);
     // read acknowledgement number
-    uint32_t ack_num;
+    unsigned int ack_num;
     memcpy(&ack_num, packet + 28, 4);
     // convert network to host byte order
     *seq = ntohl(seq_num);
@@ -331,9 +385,12 @@ int main(int argc, char **argv) {
     printf("selected source port number: %d\n", ntohs(saddr.sin_port));
 
     // tell the kernel that headers are included in the packet
+#ifdef _WIN32
+    char one = 1;
+#else
     int one = 1;
-    const int *val = &one;
-    if (setsockopt(sock, IPPROTO_IP, IP_HDRINCL, val, sizeof(one)) == -1) {
+#endif
+    if (setsockopt(sock, IPPROTO_IP, IP_HDRINCL, &one, sizeof(one)) == -1) {
         printf("setsockopt(IP_HDRINCL, 1) failed\n");
         return 1;
     }
@@ -360,7 +417,7 @@ int main(int argc, char **argv) {
     }
 
     // read sequence number to acknowledge in next packet
-    uint32_t seq_num, ack_num;
+    unsigned int seq_num, ack_num;
     read_seq_and_ack(recvbuf, &seq_num, &ack_num);
     int new_seq_num = seq_num + 1;
 
@@ -396,7 +453,7 @@ int main(int argc, char **argv) {
         }
     }
 
-    // TODO: handle FIN packets to close the connection properly
+    // TODO: handle FIN packets to close the session properly
 
     close(sock);
     return 0;

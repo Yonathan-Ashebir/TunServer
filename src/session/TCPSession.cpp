@@ -2,20 +2,20 @@
 // Created by yoni_ash on 4/27/23.
 //
 
-#include "TCPConnection.h"
+#include "TCPSession.h"
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 
-TCPConnection::TCPConnection(Tunnel &tunnel, socket_t &maxFd, fd_set *rcv, fd_set *snd, fd_set *err) : tunnel(tunnel),
-                                                                                                       maxFd(maxFd) {
+TCPSession::TCPSession(Tunnel &tunnel, socket_t &maxFd, fd_set *rcv, fd_set *snd, fd_set *err) : tunnel(tunnel),
+                                                                                                 maxFd(maxFd) {
     if (!(rcv && snd && err))throw invalid_argument("Null set is not allowed");
     receiveSet = rcv;
     sendSet = snd;
     errorSet = err;
 }
 
-TCPConnection::~TCPConnection() {
+TCPSession::~TCPSession() {
     delete sendBuffer;
 #ifdef LOGGING
     ::printf("Connection destroyed");
@@ -37,7 +37,7 @@ socket_t createTcpSocket() {
     return result;
 }
 
-void TCPConnection::receiveFromClient(TCPPacket &packet) {
+void TCPSession::receiveFromClient(TCPPacket &packet) {
     auto generateSequenceNo = []() {
         return random() % 2 ^ 31;
     };
@@ -260,7 +260,7 @@ void TCPConnection::receiveFromClient(TCPPacket &packet) {
 }
 
 /*Returns whether it can receive more*/
-bool TCPConnection::receiveFromServer(TCPPacket &packet) {
+bool TCPSession::receiveFromServer(TCPPacket &packet) {
     //Only matter if state == ESTABLISHED
     if (state != ESTABLISHED)return false;
     trimSendBuffer();
@@ -293,8 +293,8 @@ bool TCPConnection::receiveFromServer(TCPPacket &packet) {
 }
 
 
-//Info: flush calls often should trim buffers, close the connection (or parts of it), handle data never flushed to node case (e.g. by using RESET packets);
-void TCPConnection::flushDataToServer(TCPPacket &packet) {
+//Info: flush calls often should trim buffers, close the session (or parts of it), handle data never flushed to node case (e.g. by using RESET packets);
+void TCPSession::flushDataToServer(TCPPacket &packet) {
     if (state != ESTABLISHED)return;
 
     if (isUpStreamComplete())return;
@@ -348,7 +348,7 @@ void TCPConnection::flushDataToServer(TCPPacket &packet) {
 }
 
 
-void TCPConnection::flushDataToClient(TCPPacket &packet) {
+void TCPSession::flushDataToClient(TCPPacket &packet) {
     if (state != ESTABLISHED)return;
     auto now = chrono::steady_clock::now();
     auto diff = now - lastSendTime;

@@ -61,11 +61,11 @@ void Handler::handleUpStream() {
 
             bool isSyn = packet.isSyn();
             bool isHandled = false;
-            TCPConnection *closedConnection = nullptr;
+            TCPSession *closedConnection = nullptr;
 
             for (unsigned int ind = 0; ind < connectionsCount; ind++) {
                 auto con = connections[ind];
-                if (con->getState() == TCPConnection::CLOSED) {
+                if (con->getState() == TCPSession::CLOSED) {
                     if (closedConnection == nullptr)closedConnection = con;
                     continue;
                 }
@@ -78,11 +78,11 @@ void Handler::handleUpStream() {
                 if (isSyn) {
                     if (connectionsCount == connectionsSize - 1) {
                         connectionsSize *= 2;
-                        connections = (TCPConnection **) ::realloc(connections,
-                                                                   connectionsSize * sizeof(TCPConnection *));
+                        connections = (TCPSession **) ::realloc(connections,
+                                                                   connectionsSize * sizeof(TCPSession *));
                     }
                     if (closedConnection == nullptr) {
-                        auto con = new TCPConnection(tunnel, maxFd, &rcv, &snd, &err);
+                        auto con = new TCPSession(tunnel, maxFd, &rcv, &snd, &err);
                         connections[connectionsCount] = con;
                         connectionsCount++;
                         con->receiveFromClient(packet);
@@ -99,7 +99,7 @@ void Handler::handleUpStream() {
         //flush to server
         for (unsigned int ind = 0; ind < connectionsCount; ind++) {
             auto con = connections[ind];
-            if (con->getState() == TCPConnection::CLOSED)continue;
+            if (con->getState() == TCPSession::CLOSED)continue;
             con->flushDataToServer(packet);
         }
     }
@@ -141,7 +141,7 @@ void Handler::handleDownStream() {
         bool atleastOneHasSpace = false;
         for (unsigned int ind = 0; ind < connectionsCount && count > 0; ind++) {
             auto con = connections[ind];
-            if (con->getState() == TCPConnection::CLOSED)continue;
+            if (con->getState() == TCPSession::CLOSED)continue;
             if (FD_ISSET(con->getFd(), &rcvCpy)) {
                 atleastOneHasSpace |= con->receiveFromServer(packet);
                 count--;
@@ -150,7 +150,7 @@ void Handler::handleDownStream() {
 
         for (unsigned int ind = 0; ind < connectionsCount; ind++) {
             auto con = connections[ind];
-            if (con->getState() == TCPConnection::CLOSED)continue;
+            if (con->getState() == TCPSession::CLOSED)continue;
             con->flushDataToClient(packet);
         }
         /*No need to check effect of flushing as things are immediate in networking*/

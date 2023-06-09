@@ -27,7 +27,8 @@
 #include <sys/types.h>
 
 //#define STRICT_MODE
-//#define LOGGING
+#define LOGGING
+
 
 #ifdef _WIN32
 //#define WIN32_LEAN_AND_MEAN
@@ -108,6 +109,7 @@ struct tcphdr {
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
+#include <functional>
 
 #define CLOSE close
 #define socket_t int
