@@ -6,8 +6,14 @@
 #include <unistd.h>
 #include <string.h>
 #include <time.h>
+
+#ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#else
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#endif
 
 struct iphdr {
 #if __BYTE_ORDER == __LITTLE_ENDIAN
@@ -327,7 +333,7 @@ int receive_from(int sock, char *buffer, size_t buffer_length, struct sockaddr_i
     int received;
     do {
         received = recvfrom(sock, buffer, buffer_length, 0, NULL, NULL);
-        if (received < 0)
+        if (received == -1)
             break;
         memcpy(&dst_port, buffer + 22, sizeof(dst_port));
     } while (dst_port != dst->sin_port);
@@ -455,6 +461,6 @@ int main(int argc, char **argv) {
 
     // TODO: handle FIN packets to close the session properly
 
-    close(sock);
+    CLOSE(sock);
     return 0;
 }

@@ -20,12 +20,12 @@ public:
 private:
     Tunnel &tunnel;
     mutex mtx;
-    unsigned int connectionsCount = 0;
-    unsigned int connectionsSize = 20;
-    TCPSession **connections = new TCPSession *[connectionsSize];
+    vector<TCPSession *> connections;
     bool shouldRun = false;
     bool upStreamShuttingDown = false;
     bool downStreamShuttingDown = false;
+    bool downStreamActive = false;
+    bool upStreamActive = false;
 
     fd_set rcv{};
     fd_set snd{};

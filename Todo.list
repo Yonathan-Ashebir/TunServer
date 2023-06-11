@@ -7,4 +7,5 @@
 - Robust socket resource utilization
 - Enhance mss
 - Connection life time management
-- Improve Naggle algorism
+- Improve Nagle algorithm
+- WSAGetLastError and SOCKET_ERROR usage

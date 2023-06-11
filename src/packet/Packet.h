@@ -19,9 +19,11 @@ class Packet {
 public:
     const unsigned int MIN_SIZE = 300;
 
-    Packet()= delete;
-    Packet(Packet&)= delete;
-    Packet(Packet&&)= delete;
+    Packet() = delete;
+
+    Packet(Packet &) = delete;
+
+    Packet(Packet &&) = delete;
 
 
     inline explicit Packet(unsigned int size);
@@ -57,6 +59,7 @@ public:
     inline unsigned short getIpHeaderLength() const;
 
     inline virtual void syncWithBuffer();
+
 protected:
     unsigned char *buffer{};
 
@@ -95,15 +98,17 @@ Packet::~Packet() {
 
 
 void Packet::setDoFragment(bool shouldFragment) {
-    //TODO
+    if (shouldFragment)
+        getIpHeader()->frag_off &= ~(1 << 14);
+    else
+        getIpHeader()->frag_off |= 1 << 14;
 }
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "readability-convert-member-functions-to-static"
 
 bool Packet::getDoFragment() {
-    //TODO
-    return false;
+    return getIpHeader()->frag_off & 1 << 14;
 }
 
 #pragma clang diagnostic pop

@@ -22,20 +22,6 @@ TCPSession::~TCPSession() {
 #endif
 }
 
-socket_t createTcpSocket() {
-    socket_t result;
-#ifdef _WIN32
-    result = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-#else
-    result = socket(AF_INET, SOCK_STREAM | SOCK_NONBLOCK, IPPROTO_TCP);
-#endif
-
-//    int val = 1;
-//    if (setsockopt(result, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)
-//        exitWithError("Could not disable Nagle algorithm");
-
-    return result;
-}
 
 void TCPSession::receiveFromClient(TCPPacket &packet) {
     auto generateSequenceNo = []() {
@@ -69,9 +55,6 @@ void TCPSession::receiveFromClient(TCPPacket &packet) {
         switch (state) {
             case CLOSED: {
                 socket_t sock = createTcpSocket();
-                if (sock < 0) {
-                    exitWithError("Could not create socket");//todo: take it simple
-                }
                 int res = connect(sock, (sockaddr *) &server, sizeof(sockaddr_in));
                 if (res != 0 && errno != EAGAIN && errno != EINPROGRESS && errno != EALREADY && errno != EISCONN) {
                     sendReset();
@@ -160,18 +143,19 @@ void TCPSession::receiveFromClient(TCPPacket &packet) {
             switch (state) {
                 case SYN_ACK_SENT: {
                     if (seq == receiveNext) {
-#ifdef STRICT_MODE
-                        if (ack != sendUnacknowledged + 1)exitWithError("Unexpected ack segment");
-#endif
+                        if (ack != sendUnacknowledged + 1) {
+                            sendReset();
+                            break;
+                        }
                         sendSequence = sendUnacknowledged = sendNewDataSequence = sendNext = ack;
                         auto now = chrono::steady_clock::now();
                         rtt = min(now - lastSendTime, MAX_RTT);
                         lastTimeAcknowledgmentAccepted = now;
                         FD_SET(fd, receiveSet);
                         maxFd = max(maxFd, fd + 1);
-                        state = ESTABLISHED; //todo: Another state change
+                        state = ESTABLISHED;
 #ifdef LOGGING
-                        ::printf("Received ack and set rtt = %ld\n",rtt.count() / 1000000);
+                        ::printf("Received ack and set rtt = %ld\n", rtt.count() / 1000000);
 #endif
                     } else sendReset();
                     break;
@@ -230,7 +214,7 @@ void TCPSession::receiveFromClient(TCPPacket &packet) {
 #endif
                                 //Process fin
                                 receiveNext++;
-                                clientReadFinished = true;//todo: state modifier here too
+                                clientReadFinished = true;
                             }
                             //Flush data
                             flushDataToServer(packet);
@@ -266,15 +250,15 @@ bool TCPSession::receiveFromServer(TCPPacket &packet) {
     trimSendBuffer();
     auto amt = getSendAvailable();
     if (amt == 0)return false;
-    int total = (int) recv(fd, reinterpret_cast<char *>(sendBuffer + sendNewDataSequence - sendSequence), (int) amt,
-                           0);//warn:not logically safe
-    if (total > 0 && total <= amt) {
+    auto total = recv(fd, reinterpret_cast<char *>(sendBuffer + sendNewDataSequence - sendSequence), (int) amt,
+                      0);//warn:not logically safe
+    if (total != -1) {
         //Advance next read point
         sendNewDataSequence += total;
 #ifdef LOGGING
         ::printf("Received %d bytes from server\n", total);
 #endif
-    } else if (amt > 0 && (errno != EWOULDBLOCK && errno != EAGAIN)) {
+    } else if (!isWouldBlock()) {
         //All data has been received from server or assume so !!!
         if (!serverReadFinished) {
 #ifdef LOGGING
@@ -305,23 +289,22 @@ void TCPSession::flushDataToServer(TCPPacket &packet) {
     } else {
         auto amt = receiveNext - receiveUser - (clientReadFinished ? 1 : 0);
         if (amt > 0) {
-            int val;
 //            if (receivePushSequence > receiveUser &&
-//                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1) {
+//                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &SOCKET_VAL_INT, sizeof(SOCKET_VAL_INT)) == -1) {
 //                exitWithError("Could not disable Nagle algorithm");
 //            }
-            int total = (int) send(fd, reinterpret_cast<const char *>(receiveBuffer + receiveUser - receiveSequence),
-                                   (int) amt,
-                                   0);//todo: make sure using int is enough
-            val = 0;
+            size_t total = send(fd, reinterpret_cast<const char *>(receiveBuffer + receiveUser - receiveSequence),
+                                (int) amt,
+                                0);
+
 #ifdef  LOGGING
-            ::printf("Flushed %d bytes to server\n", total);
+            ::printf("Flushed %zu bytes to server\n", total);
 #endif
 //            if (receivePushSequence > receiveUser &&
-//                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1) {
+//                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &SOCKET_VAL_INT, sizeof(SOCKET_VAL_INT)) == -1) {
 //                exitWithError("Could not re-enable Nagle algorithm");
 //            }
-            if (total > 0) {
+            if (total != -1) {
                 receiveUser += total;
                 if (clientReadFinished && receiveUser == receiveNext - 1) {
                     receiveUser++;
@@ -329,12 +312,12 @@ void TCPSession::flushDataToServer(TCPPacket &packet) {
                     else shutdown(fd, SHUT_WR);
                 } else if (!clientReadFinished)
                     trimReceiveBuffer();
-            } else if (total == 0 || (errno != EWOULDBLOCK && errno != EAGAIN)) {
+            } else if (!isWouldBlock()) {
                 //Socket's write terminated early
-                if (total != 0 && (errno != EWOULDBLOCK && errno != EAGAIN))
-                    printError("Error writing to server");
-                else
+                if (isWouldBlock())
                     printError("Early terminated write to upstream");
+                else
+                    printError("Error writing to server");
                 packet.setEnds(destination, source);
                 packet.makeResetSeq(sendNext);
                 tunnel.writePacket(packet);
@@ -355,7 +338,7 @@ void TCPSession::flushDataToClient(TCPPacket &packet) {
 
     if (isDownStreamComplete())return;
     auto sendDataStartingFrom = [this, &packet](
-            unsigned int seq) {//todo: check if this type of declaration has overhead
+            unsigned int seq) {
         packet.setEnds(destination, source);
         while (seq < sendNewDataSequence) {
             packet.makeNormal(seq, receiveNext);
@@ -379,6 +362,7 @@ void TCPSession::flushDataToClient(TCPPacket &packet) {
             tunnel.writePacket(packet);
         }
     };
+
     //todo: this seems to inefficiently send new data that did not accumulate to mss
     if (sendUnacknowledged < sendNewDataSequence && diff.count() / 4 > rtt.count()) {
         if (retryCount == SEND_MAX_RETRIES) {

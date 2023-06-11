@@ -23,7 +23,11 @@ void Handler::handleUpStream() {
     FD_ZERO(&tunnelRcv);
     FD_SET(tunnelFd, &tunnelRcv);
 #ifdef LOGGING
+#if _WIN32
     ::printf("Handling up streams, tunnelFd: %llu\n", tunnelFd);
+#else
+    ::printf("Handling up streams, tunnelFd: %d\n", tunnelFd);
+#endif
 #endif
     while (shouldRun) {
         fd_set copy = tunnelRcv;
@@ -34,12 +38,10 @@ void Handler::handleUpStream() {
 
 #ifdef _WIN32
         if (count == SOCKET_ERROR) {
-            printError("Could not use select on tunnel's file descriptor", WSAGetLastError());
-            exit(1);
+            exitWithError("Could not use select on tunnel's file descriptor", WSAGetLastError());
         }
 #else
-        if (count < 0)exitWithError("Could not use select on tunnel's file descriptor");
-
+        if (count == -1)exitWithError("Could not use select on tunnel's file descriptor");
 #endif
 
         if (count && tunnel.readPacket(packet)) {
@@ -63,8 +65,7 @@ void Handler::handleUpStream() {
             bool isHandled = false;
             TCPSession *closedConnection = nullptr;
 
-            for (unsigned int ind = 0; ind < connectionsCount; ind++) {
-                auto con = connections[ind];
+            for (auto con : connections) {
                 if (con->getState() == TCPSession::CLOSED) {
                     if (closedConnection == nullptr)closedConnection = con;
                     continue;
@@ -76,15 +77,9 @@ void Handler::handleUpStream() {
             }
             if (!isHandled) {
                 if (isSyn) {
-                    if (connectionsCount == connectionsSize - 1) {
-                        connectionsSize *= 2;
-                        connections = (TCPSession **) ::realloc(connections,
-                                                                   connectionsSize * sizeof(TCPSession *));
-                    }
                     if (closedConnection == nullptr) {
                         auto con = new TCPSession(tunnel, maxFd, &rcv, &snd, &err);
-                        connections[connectionsCount] = con;
-                        connectionsCount++;
+                        connections.push_back(con);
                         con->receiveFromClient(packet);
                     } else closedConnection->receiveFromClient(packet);
                 } else {
@@ -97,8 +92,7 @@ void Handler::handleUpStream() {
 
         }
         //flush to server
-        for (unsigned int ind = 0; ind < connectionsCount; ind++) {
-            auto con = connections[ind];
+        for (auto con : connections) {
             if (con->getState() == TCPSession::CLOSED)continue;
             con->flushDataToServer(packet);
         }
@@ -106,6 +100,7 @@ void Handler::handleUpStream() {
     upStreamShuttingDown = false;
     if (downStreamShuttingDown) return;
     else cleanUp();
+    upStreamActive = false;
 }
 
 void Handler::handleDownStream() {
@@ -118,7 +113,7 @@ void Handler::handleDownStream() {
 
 #ifdef _WIN32
     //todo: find a better way to resolve windows can not select fd_set with zero sockets set
-    socket_t testSock = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    socket_t testSock = createTcpSocket(true);
     FD_SET(testSock, &rcv);
 #endif
 
@@ -129,17 +124,18 @@ void Handler::handleDownStream() {
         fd_set rcvCpy = rcv;
         timeval tvCpy = tv;
         int count = select(maxFd, &rcvCpy, nullptr, nullptr, &tvCpy); // NOLINT(cppcoreguidelines-narrowing-conversions)
+
 #ifdef _WIN32
         if (count == SOCKET_ERROR) {
             printError("Could not use select on one of the socket's file descriptor", WSAGetLastError());
             exit(1);
         }
 #else
-        if (count < 0)exitWithError("Could not use select on one of the socket's file descriptor");
-
+        if (count == -1)exitWithError("Could not use select on one of the socket's file descriptor");
 #endif
+
         bool atleastOneHasSpace = false;
-        for (unsigned int ind = 0; ind < connectionsCount && count > 0; ind++) {
+        for (unsigned int ind = 0; ind < connections.size() && count > 0; ind++) {
             auto con = connections[ind];
             if (con->getState() == TCPSession::CLOSED)continue;
             if (FD_ISSET(con->getFd(), &rcvCpy)) {
@@ -148,8 +144,7 @@ void Handler::handleDownStream() {
             }
         }
 
-        for (unsigned int ind = 0; ind < connectionsCount; ind++) {
-            auto con = connections[ind];
+        for (auto con : connections) {
             if (con->getState() == TCPSession::CLOSED)continue;
             con->flushDataToClient(packet);
         }
@@ -157,18 +152,18 @@ void Handler::handleDownStream() {
 //        usleep(100);
         if (!atleastOneHasSpace)usleep(1000);
     }
-    unique_lock<mutex> lock(mtx);//todo: remove as not necessary
+
     downStreamShuttingDown = false;
     if (upStreamShuttingDown) return;
     else cleanUp();
-
+    downStreamActive = false;
 }
 
 bool Handler::start() {
     unique_lock<mutex> lock(mtx);
     if (shouldRun)return true;
-    if (upStreamShuttingDown || downStreamShuttingDown)return false;
-    shouldRun = true;
+    if (downStreamActive || upStreamActive)return false;
+    shouldRun = downStreamActive = upStreamActive = true;
     thread th1{[this] { handleUpStream(); }};
     thread th2{[this] { handleDownStream(); }};
 
@@ -178,6 +173,7 @@ bool Handler::start() {
 }
 
 void Handler::stop() {
+    unique_lock<mutex> lock(mtx);
     if (!shouldRun)return;
     shouldRun = false;
     upStreamShuttingDown = true;
@@ -185,11 +181,9 @@ void Handler::stop() {
 }
 
 void Handler::cleanUp() {
-    for (unsigned int ind = 0; ind < connectionsCount; ind++) {
-        auto con = connections[ind];
+    for (auto con: connections) {
         delete con;
     }
-    delete[] connections;//todo: might collide with re-alloc
 }
 
 Handler::Handler(Tunnel &tunnel) : tunnel(tunnel) {

@@ -9,7 +9,9 @@
 using namespace std;
 
 void test1() {
-    sockaddr_in bindAddr{AF_INET, htons(3334), INADDR_ANY};
+    sockaddr_storage bindAddr{AF_INET};
+    auto* bindAddrIn = reinterpret_cast<sockaddr_in *>(&bindAddr);
+    bindAddrIn->sin_port = htons(3337);
 
     Builder<unsigned int> builder{[](socket_t sock, sockaddr_in addr, unsigned int info) {
         printf("Socket %d connected\n", sock);
@@ -26,7 +28,7 @@ void test1() {
     });
 
     fetcher.setBindAddress(bindAddr);
-    fetcher.start("http://yoni-ash.000webhostapp.com/server.php");
+    fetcher.start("http://yoni-ash.000webhostapp.com/server.php");//yoni-ash.000webhostapp.com
 
 
 };

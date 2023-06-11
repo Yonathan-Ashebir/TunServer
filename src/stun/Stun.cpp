@@ -2,14 +2,7 @@
 // Created by yoni_ash on 6/7/23.
 //
 
-#include <arpa/inet.h>
-#include <netdb.h>
-#include <cstdio>
-#include <sys/socket.h>
-#include <unistd.h>
-#include <array>
-#include <string>
-#include <cstring>
+#include "../Include.h"
 
 constexpr uint16_t kBindingRequest = 0x0001;
 constexpr uint16_t kBindingResponse = 0x0101;
@@ -74,7 +67,7 @@ bool PerformStunRequest(std::string const& stun_server_ip,
     StunRequest stun_request;
     StunResponse stun_response;
 
-    int sockfd = socket(AF_INET, SOCK_DGRAM, 0);
+    int sockfd = createUdpSocket();
 
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
@@ -86,22 +79,22 @@ bool PerformStunRequest(std::string const& stun_server_ip,
     localaddr.sin_port = htons(local_port);
 
     int err = bind(sockfd, (struct sockaddr*)&localaddr, sizeof(localaddr));
-    if (err < 0) {
+    if (err == -1) {
         printf("bind error\n");
         return false;
     }
 
     printf("Sending STUN request to %s:%d\n", stun_server_ip.c_str(),
            stun_server_port);
-    err = sendto(sockfd, &stun_request, sizeof(stun_request), 0,
+    err = sendto(sockfd, (char *)&stun_request, sizeof(stun_request), 0,
                  (struct sockaddr*)&servaddr, sizeof(servaddr));
-    if (err < 0) {
+    if (err == -1) {
         printf("sendto error\n");
         return false;
     }
 
-    err = recvfrom(sockfd, &stun_response, sizeof(stun_response), 0, NULL, 0);
-    if (err < 0) {
+    err = recvfrom(sockfd, (char *)&stun_response, sizeof(stun_response), 0, NULL, 0);
+    if (err == -1) {
         printf("recvfrom error\n");
         return false;
     }
@@ -137,7 +130,7 @@ bool PerformStunRequest(std::string const& stun_server_ip,
         printf("incorrect transaction id\n");
         return false;
     }
-    close(sockfd);
+    CLOSE(sockfd);
     return true;
 }
 

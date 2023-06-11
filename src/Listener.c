@@ -13,6 +13,7 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#define CLOSE closesocket
 #define socket_t unsigned long
 #else
 #include <netinet/in.h>
@@ -20,6 +21,7 @@
 #include <arpa/inet.h>
 #include <netdb.h>
 #define socket_t int
+#define CLOSE close
 #endif
 
 
@@ -65,7 +67,7 @@ int main(void) {
         }
 
         if (bind(sockFd, p->ai_addr, p->ai_addrlen) == -1) {
-            close(sockFd);
+            CLOSE(sockFd);
             perror("listener: bind");
             continue;
         }
@@ -101,7 +103,7 @@ int main(void) {
     buf[numBytes] = '\0';
     printf("listener: packet contains \"%s\"\n", buf);
 
-    close(sockFd);
+    CLOSE(sockFd);
 
     return 0;
 }

@@ -29,19 +29,19 @@ public:
 
     ConnectionFetcher &operator=(ConnectionFetcher &&) = delete;
 
-    explicit ConnectionFetcher(const string &serverName, on_result_t onRes);
+    explicit ConnectionFetcher(const string &serverName, const on_result_t& onRes);
 
-    void setOnResult(on_result_t onRes);
+    void setOnResult(const on_result_t& onRes);
 
     void setServerName(const string &name);
 
     string getServerName();
 
-    void setBindAddress(sockaddr_in& addr);
+    void setBindAddress(sockaddr_storage &addr);
 
     unsigned int getId() const;
 
-    sockaddr_in getBindAddress();
+    sockaddr_storage getBindAddress();
 
     void start(const string &url);
 
@@ -50,7 +50,7 @@ public:
 private:
     on_result_t onResult;
     string serverName{};
-    sockaddr_in bindAddr{};
+    sockaddr_storage bindAddr{};
     unsigned int id{};
     mutex mtx;
     bool started{false};

@@ -46,11 +46,11 @@ public:
 
     inline void setWindowSize(unsigned short window);
 
-    inline void setWindowScale(unsigned char shift);//todo
+    inline void setWindowScale(unsigned char shift);
 
-    inline void setWindowSize(unsigned short window, unsigned char shift);//todo
+    inline void setWindowSize(unsigned short window, unsigned char shift);
 
-    inline void setMSS(unsigned short size);//todo
+    inline void setMSS(unsigned short size);
 
     void setOption(unsigned char kind, unsigned char len, unsigned char *payload);
 

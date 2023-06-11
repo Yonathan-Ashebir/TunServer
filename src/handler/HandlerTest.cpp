@@ -20,15 +20,13 @@ using namespace std;
 void handleSingleConnection() {
     initPlatform();
 
-    socket_t tunnelFd = socket(AF_INET, SOCK_DGRAM, 0);
-
-    if (tunnelFd < 0)exitWithError("Could not create a socket");
+    socket_t tunnelFd = createUdpSocket();
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     inet_pton(AF_INET, IP_ADDR, &addr.sin_addr.s_addr);
     addr.sin_port = htons(3333);
     auto b1 = bind(tunnelFd, reinterpret_cast<const sockaddr *>(&addr), sizeof addr);
-    if (b1 < 0)exitWithError("Could not bind");
+    if (b1 == -1)exitWithError("Could not bind");
 
     ::printf("Waiting for first packet\n");
 
@@ -36,14 +34,14 @@ void handleSingleConnection() {
     socklen_t len = sizeof(sockaddr_in);
     sockaddr_in from{};
     auto r = recvfrom(tunnelFd, buf, sizeof buf, 0, reinterpret_cast<sockaddr *>(&from), &len);
-    if (r < 0)exitWithError("Could not receive from socket");
+    if (r == -1)exitWithError("Could not receive from socket");
 
     char ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &from.sin_addr.s_addr, ip, sizeof ip);
     printf("Received %d bytes from %s:%d and addrLen: %d\n", r, ip, ntohs(from.sin_port), len);
 
     auto c = connect(tunnelFd, (sockaddr *) &from, len);
-    if (c < 0)exitWithError("Could not connect socket");
+    if (c == -1)exitWithError("Could not connect socket");
 
 //    if (fcntl(tunnelFd, F_SETFL, O_NONBLOCK) == -1) {
 //        exitWithError("Could not set tunnel non-blocking");
@@ -87,33 +85,16 @@ void handleSingleConnection() {
 
 }
 
-socket_t _createTcpSocket() {
-    socket_t result;
-#ifdef _WIN32
-    result = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-#else
-    result = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
-#endif
-
-    int val = 1;
-//    if (setsockopt(result, IPPROTO_TCP, TCP_NODELAY, &val, sizeof(val)) == -1)
-//        exitWithError("Could not disable Nagle algorithm");
-
-    return result;
-}
-
 void handleDownload() {
     initPlatform();
 
-    socket_t tunnelFd = socket(AF_INET, SOCK_DGRAM, 0);
-
-    if (tunnelFd < 0)exitWithError("Could not create a socket");
+    socket_t tunnelFd = createUdpSocket();
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     inet_pton(AF_INET, IP_ADDR, &addr.sin_addr.s_addr);
     addr.sin_port = htons(3333);
     auto b1 = bind(tunnelFd, reinterpret_cast<const sockaddr *>(&addr), sizeof addr);
-    if (b1 < 0)exitWithError("Could not bind");
+    if (b1 == -1)exitWithError("Could not bind");
 
     ::printf("Waiting for first firstSynPacket\n");
 
@@ -121,14 +102,14 @@ void handleDownload() {
     socklen_t socklen = sizeof(sockaddr_in);
     sockaddr_in from{};
     auto r = recvfrom(tunnelFd, starterBuffer, sizeof starterBuffer, 0, reinterpret_cast<sockaddr *>(&from), &socklen);
-    if (r < 0)exitWithError("Could not receive from socket");
+    if (r == -1)exitWithError("Could not receive from socket");
 
     char ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &from.sin_addr.s_addr, ip, sizeof ip);
     printf("Received %d bytes from %s:%d and addrLen: %d\n", r, ip, ntohs(from.sin_port), socklen);
 
     auto c = connect(tunnelFd, (sockaddr *) &from, socklen);
-    if (c < 0)exitWithError("Could not connect socket");
+    if (c == -1)exitWithError("Could not connect socket");
 
 //    if (fcntl(tunnelFd, F_SETFL, O_NONBLOCK) == -1) {
 //        exitWithError("Could not set tunnel non-blocking");
@@ -172,7 +153,7 @@ void handleDownload() {
 
     tunnel.writePacket(firstSynPacket);
 
-    socket_t sock = _createTcpSocket();
+    socket_t sock = createTcpSocket();
     auto res = connect(sock, reinterpret_cast<const sockaddr *>(&server), sizeof(server));
     if (res != 0)exitWithError("Could not connect to server");
 
