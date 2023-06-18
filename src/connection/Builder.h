@@ -14,6 +14,7 @@ struct connection {
     socket_t socket;
     sockaddr_in address;
     sock_info info;
+    chrono::time_point<chrono::steady_clock, chrono::nanoseconds> startTime{};
 };
 
 template<typename sock_info>
@@ -56,6 +57,7 @@ private:
     bool isRunning{};
     mutex mtx{};
     sockaddr_storage bindAddr{};
+    chrono::milliseconds connectionTimeout{30000};
 
     void handleConnections();
 };
@@ -102,10 +104,10 @@ void Builder<sock_info>::connect(sockaddr_in addr, sock_info info) {
         if (bind(sock, reinterpret_cast<const sockaddr *>(&bindAddr), sizeof bindAddr) == -1)
             exitWithError("Could not bind to specified address");
     }
-    if (::connect(sock, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1 && !isConnectionInProgress() )
+    if (::connect(sock, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1 && !isConnectionInProgress())
         exitWithError("Could not issue a connect on socket");
 
-    connections.push_back(connection<sock_info>{sock, addr, info});
+    connections.push_back(connection<sock_info>{sock, addr, info, chrono::steady_clock::now()});
     FD_SET(sock, &writeSet);
     FD_SET(sock, &errorSet);
     maxFd = max(maxFd, sock + 1);
@@ -141,19 +143,47 @@ void Builder<sock_info>::handleConnections() {
             if (FD_ISSET(conn.socket, &writeCopy)) {
                 int error;
                 socklen_t len = sizeof error;
-                if (getsockopt(conn.socket, SOL_SOCKET, SO_ERROR, SOCKET_OPTION_POINTER_CAST &error, &len) == -1)
+                if (getsockopt(conn.socket, SOL_SOCKET, SO_ERROR, (char *) &error, &len) == -1)
                     exitWithError("Could not check connect invocation's error status");
                 if (error == 0)
                     onConnect(conn.socket, conn.address, conn.info);
-                else onError(conn.socket, conn.address, conn.info, error);
+                else {
+                    if (chrono::steady_clock::now() - conn.startTime <= connectionTimeout && error ==
+                                                                                             #ifdef _WIN32
+                                                                                             ECONNREFUSED
+                                                                                             #else
+                                                                                             ECONNREFUSED
+#endif
+                            ) {
+                        FD_CLR(conn.socket, &writeSet);
+                        FD_CLR(conn.socket, &errorSet);
+
+                        socket_t newSock = createTcpSocket(true, true);
+                        if ((reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port) != 0) {
+                            if (bind(newSock, reinterpret_cast<const sockaddr *>(&bindAddr), sizeof bindAddr) == -1)
+                                throw FormattedException("Could not bind to specified address");
+                        }
+                        if (::connect(newSock, reinterpret_cast<const sockaddr *>(&conn.address),
+                                      sizeof conn.address) == -1 && !isConnectionInProgress())
+                            throw FormattedException("Could not issue a connect on socket");
+                        conn.socket = newSock;
+                    } else{
+                        onError(conn.socket, conn.address, conn.info, error);
+                        CLOSE(conn.socket);
+                    }
+                }
 
                 ind = connections.erase(ind);
             } else if (FD_ISSET(conn.socket, &errorCopy)) {
-                FD_CLR(conn.socket,&writeSet);
-                FD_CLR(conn.socket,&errorSet);
-                onError(conn.socket, conn.address, conn.info, errno);
-                CLOSE(conn.socket);
+                int error;
+                socklen_t len = sizeof error;
+                if (getsockopt(conn.socket, SOL_SOCKET, SO_ERROR, (char *) &error, &len) == -1)
+                    exitWithError("Could not check connect invocation's error status");
+                FD_CLR(conn.socket, &writeSet);
+                FD_CLR(conn.socket, &errorSet);
+                onError(conn.socket, conn.address, conn.info, error);
                 ind = connections.erase(ind);
+                CLOSE(conn.socket);
             } else ind++;
         }
 

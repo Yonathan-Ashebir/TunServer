@@ -29,12 +29,13 @@
 
 //#define STRICT_MODE
 #define LOGGING
+#define random rand
 const bool _SOCKET_VAL_BOOL = true;
-const char SOCKET_VAL_BOOL = *(char *)&_SOCKET_VAL_BOOL;
+const char SOCKET_VAL_BOOL = *(char *) &_SOCKET_VAL_BOOL;
 const int _SOCKET_VAL_INT = 1;
-const char SOCKET_VAL_INT = *(char *)&_SOCKET_VAL_INT;
+const char SOCKET_VAL_INT = *(char *) &_SOCKET_VAL_INT;
 const unsigned long _SOCKET_VAL_ULONG = 1ul;
-const char SOCKET_VAL_ULONG = *(char *)&_SOCKET_VAL_ULONG;
+const char SOCKET_VAL_ULONG = *(char *) &_SOCKET_VAL_ULONG;
 
 #ifdef _WIN32
 //#define WIN32_LEAN_AND_MEAN
@@ -45,12 +46,9 @@ const char SOCKET_VAL_ULONG = *(char *)&_SOCKET_VAL_ULONG;
 #include <ws2tcpip.h>
 
 #define CLOSE closesocket
-#define random rand
 #define socket_t SOCKET
 #define SHUT_WR SD_SEND
 #define SHUT_RD SD_RECEIVE
-#define BUFFER_BYTE char
-#define SOCKET_OPTION_POINTER_CAST (char *)
 
 struct iphdr {
 #if __BYTE_ORDER == __LITTLE_ENDIAN
@@ -116,11 +114,10 @@ struct tcphdr {
 #include <arpa/inet.h>
 #include <netdb.h>
 #include <functional>
+#include <memory>
 
 #define CLOSE close
 #define socket_t int
-#define BUFFER_BYTE unsigned char
-#define SOCKET_OPTION_POINTER_CAST (int *)
 
 #endif
 
@@ -152,21 +149,21 @@ inline void exitWithError(const string &msg, int err = errno) {
     exitWithError(msg.c_str(), err);
 }
 
-inline const char *formatError(const char *msg, int err = errno) {
-    char *buf = new char[256];
-    if (snprintf(buf, 256, ERROR_FORMAT, msg, err,
+inline shared_ptr<const char> formatError(const char *msg, int err = errno) {
+    auto buf = shared_ptr<char>{new char[256]};
+    if (snprintf(buf.get(), 256, ERROR_FORMAT, msg, err,
                  getErrorName(err), ::strerror(err)) == -1)
         exitWithError("Failed to format the error message");
     return buf;
 }
 
 inline string formatError(const string &msg, int err = errno) {
-    return string{formatError(msg.c_str(), err)};
+    return string{formatError(msg.c_str(), err).get()};
 }
 
 class FormattedException : public exception {
 public:
-    explicit FormattedException(const char *msg, int err = errno) : msg(formatError(msg, err)) {
+    explicit FormattedException(const char *msg, int err = errno) : msg(formatError(msg, err).get()) {
 
     }
 
@@ -176,7 +173,7 @@ public:
 
 
     [[nodiscard]] const char *what() const _GLIBCXX_TXN_SAFE_DYN _GLIBCXX_NOTHROW override {
-        return (new string(msg))->c_str();
+        return msg.c_str();
     }
 
 private:
@@ -221,8 +218,8 @@ inline socket_t createTcpSocket(bool reuseAddress = false, bool nonBlocking = fa
 #endif
 
     if (reuseAddress)
-        if (setsockopt(result, SOL_SOCKET, SO_REUSEADDR, &SOCKET_VAL_INT, sizeof(SOCKET_VAL_INT)) == -1)
-            exitWithError("Could not disable Nagle algorithm");
+        if (setsockopt(result, SOL_SOCKET, SO_REUSEADDR, &SOCKET_VAL_INT, sizeof(int)) == -1)
+            exitWithError("Could not set reuse address");
     if (nonBlocking) {
 #ifdef  _WIN32
         auto mode = 1UL;
@@ -233,7 +230,7 @@ inline socket_t createTcpSocket(bool reuseAddress = false, bool nonBlocking = fa
     }
 
     if (disableNagle)
-        if (setsockopt(result, IPPROTO_TCP, TCP_NODELAY, &SOCKET_VAL_INT, sizeof(SOCKET_VAL_INT)) == -1)
+        if (setsockopt(result, IPPROTO_TCP, TCP_NODELAY, &SOCKET_VAL_INT, sizeof(int)) == -1)
             exitWithError("Could not disable Nagle algorithm");
 
 
@@ -252,8 +249,8 @@ inline socket_t createUdpSocket(bool reuseAddress = false, bool nonBlocking = fa
 
 
     if (reuseAddress)
-        if (setsockopt(result, SOL_SOCKET, SO_REUSEADDR, &SOCKET_VAL_INT, sizeof(SOCKET_VAL_INT)) == -1)
-            exitWithError("Could not disable Nagle algorithm");
+        if (setsockopt(result, SOL_SOCKET, SO_REUSEADDR, &SOCKET_VAL_INT, sizeof(int)) == -1)
+            exitWithError("Could not set reuse address");
 
     if (nonBlocking) {
 #ifdef  _WIN32
@@ -265,7 +262,7 @@ inline socket_t createUdpSocket(bool reuseAddress = false, bool nonBlocking = fa
     }
 
     if (disableNagle)
-        if (setsockopt(result, IPPROTO_TCP, TCP_NODELAY, &SOCKET_VAL_INT, sizeof(SOCKET_VAL_INT)) == -1)
+        if (setsockopt(result, IPPROTO_TCP, TCP_NODELAY, &SOCKET_VAL_INT, sizeof(int)) == -1)
             exitWithError("Could not disable Nagle algorithm");
 
 
@@ -273,30 +270,35 @@ inline socket_t createUdpSocket(bool reuseAddress = false, bool nonBlocking = fa
 }
 
 
-inline sockaddr_storage *getTunServerAddress(bool forceRefresh = false) {
-    auto result = new sockaddr_storage{AF_INET};
-    auto result_in = reinterpret_cast<sockaddr_in *>(result);
+inline shared_ptr<sockaddr_storage> getTunServerAddress(bool forceRefresh = false) {
+    auto result = shared_ptr<sockaddr_storage>{new sockaddr_storage{AF_INET6}};
+    auto result_in = reinterpret_cast<sockaddr_in *>(result.get());//todo in
 
     addrinfo hints{0, AF_INET, SOCK_STREAM}, *addresses;
     int code;
     if ((code = getaddrinfo("stun.sipnet.net", "http", &hints, &addresses)) != 0) {
         exitWithError("Could not resolve host with error " + string(gai_strerror(code)));
     }
-    *result_in = *reinterpret_cast<sockaddr_in *>(addresses->ai_addr);
+    *result = *reinterpret_cast<sockaddr_storage *>(addresses->ai_addr);
     result_in->sin_port = htons(3478);
     freeaddrinfo(addresses);
 
     return result;
 }
 
-inline sockaddr_storage *getTcpMappedAddress(socket_t sock, bool isConnected = false) {
+inline shared_ptr<sockaddr_storage> getTcpMappedAddress(socket_t sock, bool isConnected = false) {
     auto stunAddr = getTunServerAddress();
-    if (!isConnected && connect(sock, reinterpret_cast<const sockaddr *>(stunAddr), sizeof(sockaddr_in)) ==
-                        -1)
+    if (!isConnected && connect(sock, reinterpret_cast<const sockaddr *>(stunAddr.get()), sizeof(sockaddr_in)) ==
+                        -1) {
         exitWithError("Could not connect to stun server");
+    }
+
     stun::message request(stun::message::binding_request,
     new unsigned char[12]);
-    if (send(sock, (char *) request.data(), request.size(), 0) == -1)exitWithError("Could not send request");
+
+    char testBuf[20]{};
+    testBuf[1] = 1;
+    if (send(sock, (char *) testBuf, 20, 0) == -1)exitWithError("Could not send request");
 
     stun::message response{};
 
@@ -310,23 +312,23 @@ inline sockaddr_storage *getTcpMappedAddress(socket_t sock, bool isConnected = f
     }
 
     using namespace stun::attribute;
-    auto address = new sockaddr_storage{AF_INET};
+    auto address = shared_ptr<sockaddr_storage>{new sockaddr_storage{AF_INET}};
 
     for (auto &attr: response) {
         // First, check the attribute type
         switch (attr.type()) {
             case type::mapped_address:
-                attr.to<type::mapped_address>().to_sockaddr((sockaddr *) address);
+                attr.to<type::mapped_address>().to_sockaddr((sockaddr *) address.get());
                 break;
             case type::xor_mapped_address:
-                attr.to<type::xor_mapped_address>().to_sockaddr((sockaddr *) address);
+                attr.to<type::xor_mapped_address>().to_sockaddr((sockaddr *) address.get());
                 return address;
         }
     }
     return address;
 }
 
-inline sockaddr_storage *getTcpMappedAddress(sockaddr_storage &bindAddr) {
+inline shared_ptr<sockaddr_storage> getTcpMappedAddress(sockaddr_storage &bindAddr) {
     auto sock = createTcpSocket(true);
     if (bind(sock, reinterpret_cast<const sockaddr *>(&bindAddr), sizeof(bindAddr)) == -1)
         throw system_error(error_code(errno, system_category()));
@@ -341,10 +343,10 @@ inline bool isConnectionInProgress() {
 #endif
     return
 #ifdef _WIN32
-            (lastError == 0 || lastError == WSAEWOULDBLOCK || lastError == WSAEINPROGRESS ||
-             lastError == WSAEALREADY) &&
-            #endif
-            (errno == 0 || errno == EWOULDBLOCK || errno == EINPROGRESS || errno == EALREADY);
+        (lastError == 0 || lastError == WSAEAGAIN || lastError == WSAEINPROGRESS ||
+         lastError == WSAEALREADY) &&
+#endif
+            (errno == 0 || errno == EAGAIN || errno == EINPROGRESS || errno == EALREADY);
 }
 
 inline bool isWouldBlock() {
@@ -353,8 +355,8 @@ inline bool isWouldBlock() {
 #endif
     return
 #ifdef _WIN32
-            (lastError == WSAEWOULDBLOCK) &&
-            #endif
+        (lastError == WSAEWOULDBLOCK) &&
+#endif
             (errno == EWOULDBLOCK || errno == EAGAIN);
 }
 

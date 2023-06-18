@@ -82,14 +82,14 @@ void ConnectionFetcher::fetchConnections(const string &url) {
     auto updateAddress = [&, this] {
         auto publicAddress = getTcpMappedAddress(bindAddr);
         if (inet_ntop(publicAddress->ss_family, (publicAddress->ss_family == AF_INET)
-                                                ? (void *) &(reinterpret_cast<sockaddr_in *>(publicAddress)->sin_addr)
-                                                : (void *) &(reinterpret_cast<sockaddr_in6 *>(publicAddress)->sin6_addr),
+                                                ? (void *) &(reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_addr)
+                                                : (void *) &(reinterpret_cast<sockaddr_in6 *>(publicAddress.get())->sin6_addr),
                       publicIp, sizeof publicIp) == nullptr) {
             throw FormattedException("Could not parse the public address");
         }
         publicPort = ntohs((publicAddress->ss_family == AF_INET)
-                           ? reinterpret_cast<sockaddr_in *>(publicAddress)->sin_port
-                           : reinterpret_cast<sockaddr_in6 *>(publicAddress)->sin6_port);
+                           ? reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_port
+                           : reinterpret_cast<sockaddr_in6 *>(publicAddress.get())->sin6_port);
 #ifdef LOGGING
         printf("My address = %s:%d\n", publicIp, publicPort);
 #endif
@@ -169,7 +169,7 @@ void ConnectionFetcher::fetchConnections(const string &url) {
         }
 
 
-//        updateAddress();
+        updateAddress();
         usleep(5000000);
     }
     /* always cleanup */

@@ -77,7 +77,7 @@ void TCPSession::receiveFromClient(TCPPacket &packet) {
                     const unsigned int newLen = (65535 << windowShift) * SEND_WINDOW_SCALE;
                     if (!sendBuffer || sendLength < newLen) {
                         delete sendBuffer;
-                        sendBuffer = new BUFFER_BYTE[newLen];
+                        sendBuffer = new char[newLen];
                         sendLength = newLen;
                     }
 
@@ -290,7 +290,7 @@ void TCPSession::flushDataToServer(TCPPacket &packet) {
         auto amt = receiveNext - receiveUser - (clientReadFinished ? 1 : 0);
         if (amt > 0) {
 //            if (receivePushSequence > receiveUser &&
-//                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &SOCKET_VAL_INT, sizeof(SOCKET_VAL_INT)) == -1) {
+//                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &SOCKET_VAL_INT, sizeof(int)) == -1) {
 //                exitWithError("Could not disable Nagle algorithm");
 //            }
             size_t total = send(fd, reinterpret_cast<const char *>(receiveBuffer + receiveUser - receiveSequence),
@@ -301,7 +301,7 @@ void TCPSession::flushDataToServer(TCPPacket &packet) {
             ::printf("Flushed %zu bytes to server\n", total);
 #endif
 //            if (receivePushSequence > receiveUser &&
-//                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &SOCKET_VAL_INT, sizeof(SOCKET_VAL_INT)) == -1) {
+//                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &SOCKET_VAL_INT, sizeof(int)) == -1) {
 //                exitWithError("Could not re-enable Nagle algorithm");
 //            }
             if (total != -1) {

@@ -184,7 +184,7 @@ void measureConnectTime() {
                 int err = 0;
 
 
-                int res = getsockopt(sock, SOL_SOCKET, SO_ERROR, SOCKET_OPTION_POINTER_CAST &err, &len);
+                int res = getsockopt(sock, SOL_SOCKET, SO_ERROR, (char *) &err, &len);
                 if (res != 0)exitWithError("Failed to get socket options");
                 printError("Socket option error", err);
 
@@ -460,7 +460,7 @@ void startHelloServer() {
 }
 
 [[noreturn]] void startHelloAndListen() {
-    auto sock = createTcpSocket();
+    auto sock = createTcpSocket(true);
 
     sockaddr_in address{};
     socklen_t len;
@@ -497,8 +497,9 @@ void startHelloServer() {
         printf("Accepted client %d from %s:%d\n", count, buf, ntohs(addr.sin_port));
 
         thread th{[client, count] {
-            auto message = "Hello World!\n";
-            send(client, message, strlen(message), 0);//assuming it sends it all at ounce
+//            auto message = "Hello World!\n";
+//            if (send(client, message, strlen(message), 0) == -1)
+//                throw FormattedException("Could not say hello");//assuming it sends it all at ounce
             char buf[1000];
             while (true) {
                 auto rec = recv(client, buf, sizeof(buf), 0);
@@ -513,6 +514,27 @@ void startHelloServer() {
                     break;
                 } else {
                     ::printf("Read %zd bytes from client %d\n", rec, count);
+                    if (string(buf).starts_with("GET / HTTP")) {
+                        auto response = "HTTP/1.0 400 Bad Request\n"
+                                        "Content-Length: 273\n"
+                                        "Date: Sat, 17 Jun 2023 05:32:41 GMT\n"
+                                        "\n"
+                                        "\n"
+                                        "<html><head>\n"
+                                        "<meta http-equiv=\"content-type\" content=\"text/html;charset=utf-8\">\n"
+                                        "<title>400 Bad Request</title>\n"
+                                        "</head>\n"
+                                        "<body text=#000000 bgcolor=#ffffff>\n"
+                                        "<h1>Error: Bad Request</h1>\n"
+                                        "<h2>Your client has issued a malformed or illegal request.</h2>\n"
+                                        "<h2></h2>\n"
+                                        "</body></html>";
+                        if (send(client, response, strlen(response), 0) == -1)
+                            throw FormattedException(
+                                    "Could not send http response");//assuming it sends it all at ounce
+                        ::printf("Client %d's request has been responded to\n", count);
+                        break;
+                    }
                 }
             }
             CLOSE(client);
@@ -657,19 +679,19 @@ void testPreProcessor() {
 }
 
 void testTcpMappedAddress() {
-    auto sock = createTcpSocket();
     sockaddr_storage bindAddr{AF_INET};
-    reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port = htons(3338);
+    reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port = htons(12121);
     auto address = getTcpMappedAddress(bindAddr);
+//    usleep(500000);
 //    address = getTcpMappedAddress(bindAddr);
 
     char addr[100];
     unsigned short port = ntohs((address->ss_family == AF_INET)
-                                ? reinterpret_cast<sockaddr_in *>(address)->sin_port
-                                : reinterpret_cast<sockaddr_in6 *>(address)->sin6_port);
+                                ? reinterpret_cast<sockaddr_in *>(address.get())->sin_port
+                                : reinterpret_cast<sockaddr_in6 *>(address.get())->sin6_port);
     inet_ntop(address->ss_family,
-              (address->ss_family == AF_INET) ? (void *) &reinterpret_cast<sockaddr_in *>(address)->sin_addr
-                                              : (void *) &reinterpret_cast<sockaddr_in6 *>(address)->sin6_addr,
+              (address->ss_family == AF_INET) ? (void *) &reinterpret_cast<sockaddr_in *>(address.get())->sin_addr
+                                              : (void *) &reinterpret_cast<sockaddr_in6 *>(address.get())->sin6_addr,
               addr, sizeof addr);
     ::printf("Mapped tcp address = %s:%d\n", addr, port);
 }
@@ -731,8 +753,8 @@ void testException() {
 #ifdef _WIN32
     ::signal(SIGTERM, SIG_IGN);
 #else
-    std::sigaction ig{
-    //            [](int){printf("Sig-action's callback was called\n");}
+    struct sigaction ig{
+            //            [](int){printf("Sig-action's callback was called\n");}
             SIG_IGN
     };
     sigaction(SIGTERM, &ig, nullptr);
@@ -745,6 +767,22 @@ void testException() {
     t.detach();
     sleep(5);
     printf("After sleep\n");
+}
+
+void testMemoryLeakOnException() {
+    int max = 100000;
+    for (int ind = 0; ind < max; ind++) {
+        try {
+            throw FormattedException("Exception message");
+        } catch (FormattedException exception) {
+            if (ind % (max / 5) == 0) {
+                printf("%s\n", exception.what());
+                printf("Thrown %d times, %f\n", ind, (float) (ind + 1) / max);
+            }
+        }
+    }
+    printf("Finished\n");
+    sleep(60);
 }
 
 void reuseAddress() {
@@ -792,28 +830,28 @@ void p2pBothTryToConnect(bool random = false) {
     CLOSE(sock1);
     CLOSE(sock2);
 
-    for (int ind = 0; ind < 1; ind++) {
-        sock1 = createTcpSocket(true);
+    sock1 = createTcpSocket(true);
+    if (bind(sock1, reinterpret_cast<const sockaddr *>(&bindAddress1), sizeof bindAddress1) == -1)
+        exitWithError("Could not bind sock1 at the loop");
+    auto t = thread{[&] {
+        this_thread::sleep_for(chrono::milliseconds(20000));
+        if (connect(sock1, reinterpret_cast<const sockaddr *>(mp2.get()), sizeof(*mp2)) == -1) {
+            printError("Sock1 could not connect at attempt "/* + to_string(ind + 1)*/);
+        } else printf("Sock1 connected\n");
+    }};
+
+    for (int ind = 0; ind < 10; ind++) {
         sock2 = createTcpSocket(true);
-        if (bind(sock1, reinterpret_cast<const sockaddr *>(&bindAddress1), sizeof bindAddress1) == -1)
-            exitWithError("Could not bind sock1 at the loop");
         if (bind(sock2, reinterpret_cast<const sockaddr *>(&bindAddress2), sizeof bindAddress2) == -1)
             exitWithError("Could not bind sock2 at the loop");
-
-        auto t = thread{[&] {
-            this_thread::sleep_for(chrono::milliseconds(1000));
-            if (connect(sock1, reinterpret_cast<const sockaddr *>(mp2), sizeof(*mp2)) == -1) {
-                printError("Sock1 could not connect at attempt " + to_string(ind + 1));
-            } else printf("Sock1 connected\n");
-        }};
-        if (connect(sock2, reinterpret_cast<const sockaddr *>(mp1), sizeof(*mp1)) == -1) {
+        if (connect(sock2, reinterpret_cast<const sockaddr *>(mp1.get()), sizeof(*mp1)) == -1) {
             printError("Sock2 could not connect at attempt " + to_string(ind + 1));
         } else printf("Sock2 connected\n");
-        t.join();
-        CLOSE(sock1);
         CLOSE(sock2);
         usleep(500000);
     }
+    t.join();
+    CLOSE(sock1);
 }
 
 void stunIndicate(socket_t sock) {
@@ -845,7 +883,7 @@ void testStunReuseAddress() {
             throw FormattedException("Could not bind");
 
 //        auto mp = getTcpMappedAddress(sock);
-        closesocket(sock);
+        CLOSE(sock);
 
 //        delete mp;
         printf("Resolved public address for the %zu time\n", ++count);
@@ -854,10 +892,15 @@ void testStunReuseAddress() {
 
 }
 
-int main() {
-    initPlatform();
-    testSocketReuseAddress();
+void testClientServerQuery(){
+
 }
 
+int main() {
+    initPlatform();
+    testTcpMappedAddress();
+//    p2pBothTryToConnect(true);
+//    startHelloAndListen();
+}
 
 #pragma clang diagnostic pop

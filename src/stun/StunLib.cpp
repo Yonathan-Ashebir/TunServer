@@ -102,11 +102,11 @@ void testTcpMappedAddress() {
 
     char addr[100];
     unsigned short port = ntohs((address->ss_family == AF_INET)
-                                ? reinterpret_cast<sockaddr_in *>(address)->sin_port
-                                : reinterpret_cast<sockaddr_in6 *>(address)->sin6_port);
+                                ? reinterpret_cast<sockaddr_in *>(address.get())->sin_port
+                                : reinterpret_cast<sockaddr_in6 *>(address.get())->sin6_port);
     inet_ntop(address->ss_family,
-              (address->ss_family == AF_INET) ? (void *) &reinterpret_cast<sockaddr_in *>(address)->sin_addr
-                                              : (void *) &reinterpret_cast<sockaddr_in6 *>(address)->sin6_addr,
+              (address->ss_family == AF_INET) ? (void *) &reinterpret_cast<sockaddr_in *>(address.get())->sin_addr
+                                              : (void *) &reinterpret_cast<sockaddr_in6 *>(address.get())->sin6_addr,
               addr, sizeof addr);
     ::printf("Mapped tcp address = %s:%d\n", addr, port);
 }

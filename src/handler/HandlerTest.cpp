@@ -135,7 +135,7 @@ void handleDownload() {
     unsigned receiveNext = firstSynPacket.getSequenceNumber() + 1;
 
     unsigned int sendLength = 65535;
-    BUFFER_BYTE sendBuffer[sendLength];
+    char sendBuffer[sendLength];
     unsigned sendSequence = 1;
     unsigned sendUnacknowledged = sendSequence, sendNext = sendSequence, sendNewData = sendSequence;
     bool serverReadFinished = false;
@@ -163,7 +163,7 @@ void handleDownload() {
     mutex mtx{};
     thread receiveFromClient{[&] {
         TCPPacket receivingPacket(3072);
-        BUFFER_BYTE buf[3072];
+        char buf[3072];
         while (isOpen) {
             tunnel.readPacket(receivingPacket);
             //No reset demanding or other cases are required here

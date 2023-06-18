@@ -71,7 +71,7 @@ private:
     sockaddr_in destination{};
 
     unsigned short mss{};
-    BUFFER_BYTE *sendBuffer{}; //buffer to send data to a client
+    char *sendBuffer{}; //buffer to send data to a client
     unsigned int sendLength{}; //size of buffer
     unsigned int sendWindow{}; // max size of data for next segment
     unsigned char windowShift{};
@@ -86,7 +86,7 @@ private:
     chrono::time_point<chrono::steady_clock, chrono::nanoseconds> lastTimeAcknowledgmentAccepted{};
 
     unsigned int lastAcknowledgedSequence{};
-    BUFFER_BYTE receiveBuffer[RECEIVE_BUFFER_SIZE]{}; //buffer to collect data from a client
+    char receiveBuffer[RECEIVE_BUFFER_SIZE]{}; //buffer to collect data from a client
     unsigned int receiveSequence{};
     unsigned int receiveUser{}; //the sequence number of next data
     // to be consumed by the user or in our case sends to the application server
