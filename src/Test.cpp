@@ -544,28 +544,16 @@ void startHelloServer() {
 }
 
 void testSocketReuseAddress() {
-    socket_t sock1 = createTcpSocket();
-    socket_t sock2 = createTcpSocket();
-    socket_t sock3 = createTcpSocket();
-    socket_t sock4 = createTcpSocket();
-#ifdef  _WIN32
-    char optVal = 1;
-#else
-    int optVal = 1;
-#endif
-    socklen_t len = sizeof optVal;
-    if (setsockopt(sock1, SOL_SOCKET, SO_REUSEADDR, &optVal, len) == -1)
-        exitWithError("Could not set reuse address on sock1");
-    if (setsockopt(sock2, SOL_SOCKET, SO_REUSEADDR, &optVal, len) == -1)
-        exitWithError("Could not set reuse address on sock2");
-    if (setsockopt(sock3, SOL_SOCKET, SO_REUSEADDR, &optVal, len) == -1)
-        exitWithError("Could not set reuse address on sock3");
-    if (setsockopt(sock4, SOL_SOCKET, SO_REUSEADDR, &optVal, len) == -1)
-        exitWithError("Could not set reuse address on sock4");
+    socket_t sock1 = createTcpSocket(true);
+    socket_t sock2 = createTcpSocket(true);
+    socket_t sock3 = createTcpSocket(true);
+    socket_t sock4 = createTcpSocket(true);
+    socklen_t len = sizeof(int);
+
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
-    addr.sin_port = htons(32212);
+    addr.sin_port = htons(37932);
     //NO difference between the two? there was difference in linux? can connect without INADDR_ANY
     addr.sin_addr.s_addr = INADDR_ANY;
 //    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
@@ -587,11 +575,14 @@ void testSocketReuseAddress() {
     if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1) {
         exitWithError("Could not connect sock1 to remote server");
     }
-    if (send(sock1, "Mr is me", 8, 0) == -1)exitWithError("Could not send on sock1");
+    unsigned char tx[12];
+    stun::message message{STUN_BINDING_REQUEST, tx};
+    if (send(sock1, (char *) message.data(), message.size(), 0) == -1)
+        exitWithError("Could not send on sock1");
     ::printf("Sock1 connected\n");
     CLOSE(sock1);
 
-    sleep(6);
+    sleep(1);
 
     /*Does not work without this on windows*/
 //    inet_pton(AF_INET, "1.1.1.1", &addr.sin_addr.s_addr);
@@ -629,21 +620,10 @@ void testSocketReuseAddress() {
 }
 
 void testTCPSocketReconnect() {
-#ifdef  _WIN32
-    char optVal = 1;
-#else
-    int optVal = 1;
-#endif
-    socklen_t len = sizeof optVal;
     socket_t sock1 = createTcpSocket(false);
 
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    addr.sin_port = htons(3334);
-    //NO difference between the two
-    addr.sin_addr.s_addr = INADDR_ANY;
+    sockaddr_in addr{AF_INET, htons(3334), INADDR_ANY};
 //    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
-
 
     if (bind(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
         exitWithError("Could not bind sock1");
@@ -664,7 +644,43 @@ void testTCPSocketReconnect() {
     if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
         exitWithError("Could not connect again");
     ::printf("Secondary session succeeded\n");
+}
 
+void testTCPSocketRetryConnect() {
+    socket_t sock1 = createTcpSocket(true);
+
+    sockaddr_in addr{AF_INET, htons(3337), INADDR_ANY};
+//    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
+
+    if (bind(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
+        exitWithError("Could not bind sock1");
+
+    addr.sin_port = htons(800);
+    inet_pton(AF_INET, "212.53.40.40", &addr.sin_addr.s_addr);
+    auto startTime = chrono::steady_clock::now();
+    chrono::milliseconds timeout{30000};
+
+    while (true) {
+        if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1) {
+
+#ifdef _WIN32
+            auto err = WSAGetLastError();
+            if (err == WSAECONNREFUSED || err == WSAETIMEDOUT)
+#else
+            if (errno == ECONNREFUSED || errno == ETIMEDOUT)
+#endif
+            {
+                if (chrono::steady_clock::now() - startTime > timeout) {
+                    printf("Timed out");
+                    break;
+                }
+            } else throw FormattedException("Could not connect");
+        } else {
+            printf("Connected successfully");
+            break;
+        };
+    }
+    CLOSE(sock1);
 }
 
 #define cat(a, b) a ## b
@@ -681,9 +697,9 @@ void testPreProcessor() {
 void testTcpMappedAddress() {
     sockaddr_storage bindAddr{AF_INET};
     reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port = htons(12121);
-    auto address = getTcpMappedAddress(bindAddr);
+    auto address = getTCPMappedAddress(bindAddr);
 //    usleep(500000);
-//    address = getTcpMappedAddress(bindAddr);
+//    address = getTCPMappedAddress(bindAddr);
 
     char addr[100];
     unsigned short port = ntohs((address->ss_family == AF_INET)
@@ -787,7 +803,7 @@ void testMemoryLeakOnException() {
 
 void reuseAddress() {
     sockaddr_in bindAddr{AF_INET, htons(3334)};
-    sockaddr_in remoteAddr{AF_INET, htons(80)};
+    sockaddr_in remoteAddr{AF_INET, htons(8)};
     inet_pton(AF_INET, "212.53.40.40", &remoteAddr.sin_addr);
     while (true) {
         socket_t sock = createTcpSocket(true);
@@ -817,8 +833,8 @@ void p2pBothTryToConnect(bool random = false) {
         exitWithError("Could not bind sock1");
     if (bind(sock2, reinterpret_cast<const sockaddr *>(&bindAddress2), sizeof bindAddress2) == -1)
         exitWithError("Could not bind sock2");
-    auto mp1 = getTcpMappedAddress(sock1);
-    auto mp2 = getTcpMappedAddress(sock2);
+    auto mp1 = getTCPMappedAddress(sock1);
+    auto mp2 = getTCPMappedAddress(sock2);
     socklen_t len = sizeof bindAddress1;
     if (getsockname(sock1, reinterpret_cast<sockaddr *>(&bindAddress1),
                     &len) == -1)
@@ -834,7 +850,7 @@ void p2pBothTryToConnect(bool random = false) {
     if (bind(sock1, reinterpret_cast<const sockaddr *>(&bindAddress1), sizeof bindAddress1) == -1)
         exitWithError("Could not bind sock1 at the loop");
     auto t = thread{[&] {
-        this_thread::sleep_for(chrono::milliseconds(20000));
+//        this_thread::sleep_for(chrono::milliseconds(20000));
         if (connect(sock1, reinterpret_cast<const sockaddr *>(mp2.get()), sizeof(*mp2)) == -1) {
             printError("Sock1 could not connect at attempt "/* + to_string(ind + 1)*/);
         } else printf("Sock1 connected\n");
@@ -862,45 +878,54 @@ void stunIndicate(socket_t sock) {
 
 void testStuntReuseSocket() {
     auto sock = createTcpSocket();
-    auto mp1 = getTcpMappedAddress(sock);
+    auto mp1 = getTCPMappedAddress(sock);
 //    while(true){
 //        stunIndicate(sock);
 //        usleep(1);
 //    }
 
-    auto mp2 = getTcpMappedAddress(sock, true);
+    auto mp2 = getTCPMappedAddress(sock, true);
 }
 
 void testStunReuseAddress() {
     sockaddr_storage bindAddress{AF_INET};
-    reinterpret_cast<sockaddr_in *>(&bindAddress)->sin_port = htons(42120);
-    size_t count{};
-    while (true) {
-//        auto mp = getTcpMappedAddress(bindAddress);
+    reinterpret_cast<sockaddr_in *>(&bindAddress)->sin_port = htons(32310);
+    linger ln{1, 0};
+    sockaddr_in otherStunAddr{AF_INET, htons(3478)};
+    inet_pton(AF_INET, "193.22.17.97", &otherStunAddr.sin_addr);
+    for (int count = 0; count < 20; count++) {
+        shared_ptr<sockaddr_storage> mp;
+        if (count % 2 == 1) {
+            mp = getTCPMappedAddress(bindAddress);
+        } else {
+            auto sock = createTcpSocket(true);
+            if (setsockopt(sock, SOL_SOCKET, SO_LINGER, &ln, sizeof ln) == -1)
+                throw FormattedException("Could not set linger on socket");
+            if (bind(sock, reinterpret_cast<const sockaddr *>(&bindAddress), sizeof bindAddress) == -1)
+                throw FormattedException("Could not bind");
+            if (connect(sock, reinterpret_cast<const sockaddr *>(&otherStunAddr), sizeof otherStunAddr) == -1)
+                throw FormattedException("Could not connect to the other stun server");
+            mp = getTCPMappedAddress(sock, true);
+            CLOSE(sock);
+        }
 
-        auto sock = createTcpSocket(true);
-        if (bind(sock, reinterpret_cast<const sockaddr *>(&bindAddress), sizeof bindAddress) == -1)
-            throw FormattedException("Could not bind");
-
-//        auto mp = getTcpMappedAddress(sock);
-        CLOSE(sock);
-
-//        delete mp;
-        printf("Resolved public address for the %zu time\n", ++count);
-        usleep(5000000);
+        printf("Resolved public address of %s, trier %d\n", getAddressString(*mp).c_str(), count + 1);
+        usleep(2000000);
     }
 
 }
 
-void testClientServerQuery(){
+void testClientServerQuery() {
 
 }
 
+
 int main() {
     initPlatform();
-    testTcpMappedAddress();
+//    testTcpMappedAddress();
 //    p2pBothTryToConnect(true);
 //    startHelloAndListen();
+    testStunReuseAddress();
 }
 
 #pragma clang diagnostic pop

@@ -46,7 +46,7 @@ void test1() {
     socket_t stunSocket = createTcpSocket(true);
     if (bind(stunSocket, reinterpret_cast<const sockaddr *>(&bindAddress), sizeof bindAddress) == -1)
         throw FormattedException("Could not bind stun socket");
-    auto publicAddress = getTcpMappedAddress(stunSocket);
+    auto publicAddress = getTCPMappedAddress(stunSocket);
     if (inet_ntop(publicAddress->ss_family, (publicAddress->ss_family == AF_INET)
                                             ? (void *) &(reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_addr)
                                             : (void *) &(reinterpret_cast<sockaddr_in6 *>(publicAddress.get())->sin6_addr),
@@ -168,7 +168,128 @@ void test2() {
     socket_t stunSocket = createTcpSocket(true);
     if (bind(stunSocket, reinterpret_cast<const sockaddr *>(&bindAddress), sizeof bindAddress) == -1)
         throw FormattedException("Could not bind stun socket");
-    auto publicAddress = getTcpMappedAddress(stunSocket);
+    auto publicAddress = getTCPMappedAddress(stunSocket);
+    if (inet_ntop(publicAddress->ss_family, (publicAddress->ss_family == AF_INET)
+                                            ? (void *) &(reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_addr)
+                                            : (void *) &(reinterpret_cast<sockaddr_in6 *>(publicAddress.get())->sin6_addr),
+                  publicIp, sizeof publicIp) == nullptr) {
+        throw FormattedException("Could not parse the public address");
+    }
+    publicPort = ntohs((publicAddress->ss_family == AF_INET)
+                       ? reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_port
+                       : reinterpret_cast<sockaddr_in6 *>(publicAddress.get())->sin6_port);
+#ifdef LOGGING
+    printf("My public address = %s:%d\n", publicIp, publicPort);
+#endif
+    socklen_t len = sizeof bindAddress;
+    if (getsockname(stunSocket, reinterpret_cast<sockaddr *>(&bindAddress),
+                    &len) == -1)
+        throw FormattedException("Could not get _selectTestBindAddress");
+//    CLOSE(stunSocket);
+    CURL *curl;
+    CURLcode res;
+
+    /* In windows, this will init the winsock stuff */
+
+    curl = curl_easy_init();
+    if (curl) {
+        ResponseData data{};
+        curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, reader);
+        curl_easy_setopt(curl, CURLOPT_WRITEDATA, &data);
+        curl_easy_setopt(curl, CURLOPT_URL,
+                         (string("http://") + SERVER_URL +
+                          "/client.php?is_addr_query=1&respondSeparately=1&is_server_query=1&addr=" +
+                          publicIp + "&port=" +
+                          to_string(publicPort)).c_str());
+        thread th{[&] {
+            res = curl_easy_perform(curl);
+            if (res != CURLE_OK)throw FormattedException("Could not request for servers");
+            printf("Servers http response: %s\n", data.buf);
+        }
+        };
+
+        sockaddr_storage serverAddr{AF_INET};
+        reinterpret_cast<sockaddr_in * >(&serverAddr)->sin_port = htons(33333);
+        if (inet_pton(serverAddr.ss_family, SERVER_RAW_IP, &reinterpret_cast<sockaddr_in * >(&serverAddr)->sin_addr) ==
+            -1)
+            throw FormattedException("Could not set servers ip");
+
+        /*imp: Do not forget*/
+//        auto mp = getTCPMappedAddress(serverAddr);
+//        serverAddr = *mp;
+
+        auto startTime = chrono::steady_clock::now();
+        chrono::milliseconds timeout{30000};
+        socket_t reader = createTcpSocket(true);
+        if (bind(reader, reinterpret_cast<const sockaddr *>(&bindAddress), sizeof bindAddress) == -1)
+            throw FormattedException("Could not bind reader");
+        while (true) {
+            if (connect(reader, reinterpret_cast<const sockaddr *>(&serverAddr), sizeof serverAddr) == -1) {
+                if (
+#ifdef _WIN32
+WSAGetLastError() != WSAECONNREFUSED && WSAGetLastError() != WSAETIMEDOUT
+#else
+errno != ECONNREFUSED && errno != ETIMEDOUT
+#endif
+                        ) {
+                    throw FormattedException("Could not connect");
+                } else if (chrono::steady_clock::now() - startTime > timeout) {
+                    printf("Timeout\n");
+                    break;
+                } else usleep(10000);
+            } else {
+                printf("Separately Connected\n");
+                char buf[1000]{};
+                if (recv(reader, buf, sizeof buf, 0) == -1)throw FormattedException("Could not read");
+                deserializeJson(doc, buf);
+                if (doc.containsKey("servers")) {
+                    JsonArray arr = doc["servers"];
+                    if (arr.size() == 0) throw FormattedException("No servers available");
+                    JsonObject server = arr[0];
+                    serverId = server["id"];
+                    string addrName = server["addr"];
+                    serverIp = addrName;
+                    if (inet_pton(AF_INET, serverIp.c_str(), &reinterpret_cast<sockaddr_in *>(&serverAddr)->sin_addr) ==
+                        -1)
+                        throw FormattedException("Bad server ip");
+                    serverPort = server["port"];
+                    reinterpret_cast<sockaddr_in *>(&serverAddr)->sin_port = htons(serverPort);
+
+#ifdef LOGGING
+                    printf("Selected server with id of %d at %s:%d\n", serverId, serverIp.c_str(), serverPort);
+#endif
+                } else throw FormattedException("No 'servers' field provided");
+                break;
+            }
+        }
+        CLOSE(reader);
+        th.join();
+
+    } else exitWithError("curl_easy_init failed");
+
+
+    curl_global_cleanup();
+}
+
+void test3() {
+    curl_global_init(CURL_GLOBAL_ALL);
+
+    DynamicJsonDocument doc{10000};
+    char publicIp[INET6_ADDRSTRLEN]{};
+    unsigned short publicPort{};
+    unsigned int id;
+
+    string serverIp{};
+    unsigned short serverPort{};
+    unsigned int serverId;
+    sockaddr_storage serverAddr{AF_INET};//todo: only  ipv4
+    sockaddr_in bindAddress{AF_INET, htons(0)};
+//    if (inet_pton(AF_INET, "192.168.1.7", &_selectTestBindAddress.sin_addr) == -1)throw FormattedException("Could not set bind address");
+
+    socket_t stunSocket = createTcpSocket(true);
+    if (bind(stunSocket, reinterpret_cast<const sockaddr *>(&bindAddress), sizeof bindAddress) == -1)
+        throw FormattedException("Could not bind stun socket");
+    auto publicAddress = getTCPMappedAddress(stunSocket);
     if (inet_ntop(publicAddress->ss_family, (publicAddress->ss_family == AF_INET)
                                             ? (void *) &(reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_addr)
                                             : (void *) &(reinterpret_cast<sockaddr_in6 *>(publicAddress.get())->sin6_addr),
@@ -197,7 +318,9 @@ void test2() {
         curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, reader);
         curl_easy_setopt(curl, CURLOPT_WRITEDATA, &data);
         curl_easy_setopt(curl, CURLOPT_URL,
-                         (string("http://") + SERVER_URL + "/client.php?respondSeparately=1&is_server_query=1&addr=" + publicIp + "&port=" +
+                         (string("http://") + SERVER_URL +
+                          "/client.php?is_addr_query=1&respondSeparately=1&is_server_query=1&addr=" +
+                          publicIp + "&port=" +
                           to_string(publicPort)).c_str());
         thread th{[&] {
             res = curl_easy_perform(curl);
@@ -207,68 +330,117 @@ void test2() {
         };
 
         sockaddr_storage serverAddr{AF_INET};
-        reinterpret_cast<sockaddr_in* >(&serverAddr)->sin_port = htons(33333);
-        if (inet_pton(serverAddr.ss_family, SERVER_RAW_IP, &reinterpret_cast<sockaddr_in* >(&serverAddr)->sin_addr) == -1)
+        reinterpret_cast<sockaddr_in * >(&serverAddr)->sin_port = htons(33333);
+        if (inet_pton(serverAddr.ss_family, SERVER_RAW_IP, &reinterpret_cast<sockaddr_in * >(&serverAddr)->sin_addr) ==
+            -1)
             throw FormattedException("Could not set servers ip");
 
         /*imp: Do not forget*/
-//        auto mp = getTcpMappedAddress(serverAddr);
+//        auto mp = getTCPMappedAddress(serverAddr);
 //        serverAddr = *mp;
 
         auto startTime = chrono::steady_clock::now();
         chrono::milliseconds timeout{30000};
+        socket_t reader = createTcpSocket(true, true);
+        if (bind(reader, reinterpret_cast<const sockaddr *>(&bindAddress), sizeof bindAddress) == -1)
+            throw FormattedException("Could not bind reader");
+        if (connect(reader, reinterpret_cast<const sockaddr *>(&serverAddr), sizeof serverAddr) == -1) {
+            if (!isConnectionInProgress()) throw FormattedException("Could not connect");
+        }
+        fd_set writeSet;
+        FD_ZERO(&writeSet);
+        FD_SET(reader, &writeSet);
+        timeval selectTimeout{0, 10000};
         while (true) {
-            socket_t reader = createTcpSocket(true);
-            if (bind(reader, reinterpret_cast<const sockaddr *>(&bindAddress), sizeof bindAddress) == -1)
-                throw FormattedException("Could not bind reader");
-            if (connect(reader, reinterpret_cast<const sockaddr *>(&serverAddr), sizeof serverAddr) == -1) {
+            fd_set copy = writeSet;
+            int count = select(reader + 1, nullptr, &copy, nullptr, &selectTimeout);
+            if (count > 0) {
+                int err;
+                socklen_t len = sizeof err;
+                if (getsockopt(reader, SOL_SOCKET, SO_ERROR, (char *) &err, &len) == -1)
+                    throw FormattedException("Could not query socket for errors");
+                if (err == 0) {
+                    printf("Separately Connected\n");
+                    char buf[1000]{};
+#ifdef  _WIN32
+                    auto mode = 0UL;
+                    if (ioctlsocket(reader, FIONBIO, &mode) == -1)
+                        exitWithError("Could not set non blocking flag on socket");
+#else
+                    int flags = fcntl(reader, F_GETFL);
+                    flags &= ~O_NONBLOCK;
+                    if (fcntl(reader, F_SETFL, flags) == -1)
+                        exitWithError("Could not set non blocking flag on socket");
+#endif
+                    if (recv(reader, buf, sizeof buf, 0) == -1)throw FormattedException("Could not read");
+                    deserializeJson(doc, buf);
+                    if (doc.containsKey("servers")) {
+                        JsonArray arr = doc["servers"];
+                        if (arr.size() == 0) throw FormattedException("No servers available");
+                        JsonObject server = arr[0];
+                        serverId = server["id"];
+                        string addrName = server["addr"];
+                        serverIp = addrName;
+                        if (inet_pton(AF_INET, serverIp.c_str(),
+                                      &reinterpret_cast<sockaddr_in *>(&serverAddr)->sin_addr) ==
+                            -1)
+                            throw FormattedException("Bad server ip");
+                        serverPort = server["port"];
+                        reinterpret_cast<sockaddr_in *>(&serverAddr)->sin_port = htons(serverPort);
+
+#ifdef LOGGING
+                        printf("Selected server with id of %d at %s:%d\n", serverId, serverIp.c_str(), serverPort);
+#endif
+                    } else throw FormattedException("No 'servers' field provided");
+                    break;
+                }
                 if (
 #ifdef _WIN32
-WSAGetLastError() != WSAECONNREFUSED
+err != WSAECONNREFUSED && err != WSAETIMEDOUT
 #else
-errno != ECONNREFUSED
+err != ECONNREFUSED && err != ETIMEDOUT
 #endif
                         ) {
                     throw FormattedException("Could not connect");
                 } else if (chrono::steady_clock::now() - startTime > timeout) {
                     printf("Timeout\n");
                     break;
+                } else {
+                    while (true)
+                        if (connect(reader, reinterpret_cast<const sockaddr *>(&serverAddr), sizeof serverAddr) == -1) {
+                            if (isConnectionInProgress()) break;
+                        }
+                    usleep(10000);
                 }
-            } else {
-                printf("Connected\n");
-                char buf[1000]{};
-                if (read(reader, buf, sizeof buf) == -1)throw FormattedException("Could not read");
-                deserializeJson(doc, buf);
-                if (doc.containsKey("servers")) {
-                    JsonArray arr = doc["servers"];
-                    if (arr.size() == 0) throw FormattedException("No servers available");
-                    JsonObject server = arr[0];
-                    serverId = server["id"];
-                    string addrName = server["addr"];
-                    serverIp = addrName;
-                    if (inet_pton(AF_INET, serverIp.c_str(), &reinterpret_cast<sockaddr_in *>(&serverAddr)->sin_addr) ==
-                        -1)
-                        throw FormattedException("Bad server ip");
-                    serverPort = server["port"];
-                    reinterpret_cast<sockaddr_in *>(&serverAddr)->sin_port = htons(serverPort);
-
-#ifdef LOGGING
-                    printf("Connected to server with id = %d at %s:%d\n", serverId, serverIp.c_str(), serverPort);
-#endif
-                } else throw FormattedException("No 'servers' field provided");
+            } else if (chrono::steady_clock::now() - startTime > timeout) {
+                printf("Timeout\n");
                 break;
+            } else {
+                sockaddr_in anyAddr{AF_UNSPEC};
+                while (true) {
+                    connect(reader, reinterpret_cast<const sockaddr *>(&anyAddr), sizeof anyAddr);
+                    if (connect(reader, reinterpret_cast<const sockaddr *>(&serverAddr), sizeof serverAddr) == -1) {
+                        if (isConnectionInProgress()) break;
+                    }
+                }
+                usleep(1000);
             }
-            CLOSE(reader);
         }
+        CLOSE(reader);
         th.join();
 
     } else exitWithError("curl_easy_init failed");
 
-
+    if (send(stunSocket, "blah", 4, 0) == -1)throw FormattedException("Could not send to stun after");
     curl_global_cleanup();
 }
 
 int main() {
     initPlatform();
-    test2();
+    size_t count{};
+    while (true) {
+        test2();
+        printf("Worked for the %d time\n", ++count);
+    }
+
 }

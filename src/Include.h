@@ -22,10 +22,12 @@
 #include <string>
 #include <mutex>
 #include <thread>
+#include <functional>
+#include <memory>
 #include <csignal>
 #include <sys/types.h>
 #include <stun++/message.h>
-#include "error/Error.h"
+#include "helpers/Error.h"
 
 //#define STRICT_MODE
 #define LOGGING
@@ -113,8 +115,6 @@ struct tcphdr {
 #include <sys/socket.h>
 #include <arpa/inet.h>
 #include <netdb.h>
-#include <functional>
-#include <memory>
 
 #define CLOSE close
 #define socket_t int
@@ -270,7 +270,7 @@ inline socket_t createUdpSocket(bool reuseAddress = false, bool nonBlocking = fa
 }
 
 
-inline shared_ptr<sockaddr_storage> getTunServerAddress(bool forceRefresh = false) {
+inline shared_ptr<sockaddr_storage> getTUNServerAddress(bool forceRefresh = false) {
     auto result = shared_ptr<sockaddr_storage>{new sockaddr_storage{AF_INET6}};
     auto result_in = reinterpret_cast<sockaddr_in *>(result.get());//todo in
 
@@ -286,25 +286,29 @@ inline shared_ptr<sockaddr_storage> getTunServerAddress(bool forceRefresh = fals
     return result;
 }
 
-inline shared_ptr<sockaddr_storage> getTcpMappedAddress(socket_t sock, bool isConnected = false) {
-    auto stunAddr = getTunServerAddress();
-    if (!isConnected && connect(sock, reinterpret_cast<const sockaddr *>(stunAddr.get()), sizeof(sockaddr_in)) ==
-                        -1) {
-        exitWithError("Could not connect to stun server");
+inline shared_ptr<sockaddr_storage> getTCPMappedAddress(socket_t sock, bool isConnected = false) {
+    if (!isConnected) {
+        auto stunAddr = getTUNServerAddress();
+        if (connect(sock, reinterpret_cast<const sockaddr *>(stunAddr.get()), sizeof(sockaddr_in)) ==
+            -1) {
+            exitWithError("Could not connect to stun server");
+        }
     }
 
+    unsigned char tsx[12];
     stun::message request(stun::message::binding_request,
-    new unsigned char[12]);
+                          tsx);
 
     char testBuf[20]{};
     testBuf[1] = 1;
-    if (send(sock, (char *) testBuf, 20, 0) == -1)exitWithError("Could not send request");
+    if (send(sock, (char *) testBuf, request.size(), 0) == -1)exitWithError("Could not send request");
 
     stun::message response{};
 
     size_t bytes = recv(sock, (char *) response.data(), response.capacity(), 0);
     if (bytes == -1) throw FormattedException("Could not read stun repose header");
-    if (bytes < stun::message::header_size)exitWithError("Response trimmed");
+    if (bytes < stun::message::header_size)
+        exitWithError("Response trimmed");
     if (response.size() > response.capacity()) {
         size_t read_bytes = response.size();
         response.resize(response.size());
@@ -328,13 +332,38 @@ inline shared_ptr<sockaddr_storage> getTcpMappedAddress(socket_t sock, bool isCo
     return address;
 }
 
-inline shared_ptr<sockaddr_storage> getTcpMappedAddress(sockaddr_storage &bindAddr) {
+inline shared_ptr<sockaddr_storage> getTCPMappedAddress(sockaddr_storage &bindAddr) {
     auto sock = createTcpSocket(true);
     if (bind(sock, reinterpret_cast<const sockaddr *>(&bindAddr), sizeof(bindAddr)) == -1)
         throw system_error(error_code(errno, system_category()));
-    auto result = getTcpMappedAddress(sock);
+    auto result = getTCPMappedAddress(sock);
     CLOSE(sock);
     return result;
+}
+
+inline unsigned short getPort(sockaddr_storage &addr) {
+    return ntohs((addr.ss_family == AF_INET)
+                 ? reinterpret_cast<sockaddr_in *>(&addr)->sin_port
+                 : reinterpret_cast<sockaddr_in6 *>(&addr)->sin6_port);
+}
+
+inline string getIp(sockaddr_storage &addr) {
+    string result((addr.ss_family == AF_INET) ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN, '\0');
+    inet_ntop(addr.ss_family,
+              (addr.ss_family == AF_INET) ? (void *) &reinterpret_cast<sockaddr_in *>(&addr)->sin_addr
+                                          : (void *) &reinterpret_cast<sockaddr_in6 *>(&addr)->sin6_addr,
+              result.data(), result.size());
+    int count{};
+    for (auto i = result.rbegin(); i != result.rend(); i++) {
+        if (*i != '\0')break;
+        count++;
+    }
+    result.erase(result.size() - count);
+    return result;
+}
+
+inline string getAddressString(sockaddr_storage &addr) {
+    return getIp(addr) + ":" + to_string(getPort(addr));
 }
 
 inline bool isConnectionInProgress() {
@@ -343,7 +372,7 @@ inline bool isConnectionInProgress() {
 #endif
     return
 #ifdef _WIN32
-        (lastError == 0 || lastError == WSAEAGAIN || lastError == WSAEINPROGRESS ||
+        (lastError == 0 || lastError == WSAEWOULDBLOCK || lastError == WSAEINPROGRESS ||
          lastError == WSAEALREADY) &&
 #endif
             (errno == 0 || errno == EAGAIN || errno == EINPROGRESS || errno == EALREADY);

@@ -9,3 +9,4 @@
 - Connection life time management
 - Improve Nagle algorithm
 - WSAGetLastError and SOCKET_ERROR usage
+- Socket helper classes

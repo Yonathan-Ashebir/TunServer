@@ -98,7 +98,7 @@ void test() {
 
 void testTcpMappedAddress() {
     auto sock = createTcpSocket();
-    auto address = getTcpMappedAddress(sock);
+    auto address = getTCPMappedAddress(sock);
 
     char addr[100];
     unsigned short port = ntohs((address->ss_family == AF_INET)
