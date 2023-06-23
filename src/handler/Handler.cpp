@@ -15,18 +15,18 @@ using namespace std;
 void Handler::handleUpStream() {
     TCPPacket packet(PACKET_SIZE);
 
-    socket_t tunnelFd = tunnel.getFileDescriptor();
-    socket_t maxFdTunnel = tunnelFd + 1;
+    auto tunnelSocket = tunnel.getSocket();
+    socket_t maxFdTunnel = tunnelSocket.getFD() + 1;
     timeval tv{0, 10000};
 
     fd_set tunnelRcv{};
     FD_ZERO(&tunnelRcv);
-    FD_SET(tunnelFd, &tunnelRcv);
+    tunnelSocket.setIn(tunnelRcv);
 #ifdef LOGGING
 #if _WIN32
-    ::printf("Handling up streams, tunnelFd: %llu\n", tunnelFd);
+    ::printf("Handling up streams, tunnelSocket: %llu\n", tunnelSocket.getFd());
 #else
-    ::printf("Handling up streams, tunnelFd: %d\n", tunnelFd);
+    ::printf("Handling up streams, tunnelSocket: %d\n", tunnelSocket.getFD());
 #endif
 #endif
     while (shouldRun) {

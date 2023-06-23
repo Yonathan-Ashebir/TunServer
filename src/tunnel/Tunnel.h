@@ -11,29 +11,28 @@
 
 class Tunnel {
 public:
-    inline explicit Tunnel(socket_t fd) : fd(fd) {}
+    inline explicit Tunnel(Socket& fd) : sock(fd) {}
 
-    virtual bool writePacket(Packet &packet) = 0;
+    virtual bool writePacket(IPPacket &packet) = 0;
 
-    virtual bool readPacket(Packet &packet) = 0;
+    virtual bool readPacket(IPPacket &packet) = 0;
 
-    inline socket_t getFileDescriptor() const { return fd; }
+    inline Socket getSocket() const { return sock; }
 
 
 protected:
-    inline static unsigned char *getDataBuffer(Packet &packet);
+    inline static unsigned char *getDataBuffer(IPPacket &packet);
 
-    inline static void setPacketLength(Packet &packet, unsigned int len);
+    inline static void setPacketLength(IPPacket &packet, unsigned int len);
 
-    socket_t fd;
-
+    Socket sock;
 };
 
-unsigned char *Tunnel::getDataBuffer(Packet &packet) {
+unsigned char *Tunnel::getDataBuffer(IPPacket &packet) {
     return packet.buffer;
 }
 
-void Tunnel::setPacketLength(Packet &packet, unsigned int len) {
+void Tunnel::setPacketLength(IPPacket &packet, unsigned int len) {
     packet.length = len;
 }
 

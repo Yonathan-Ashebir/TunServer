@@ -239,20 +239,17 @@ enum class testEnum {
 //};
 
 void UDPSocketTest() {
-    int sock1 = createUdpSocket();
-    int sock2 = createUdpSocket();
-    if (sock1 == -1 || sock2 < 2)exitWithError("Could not create sockets");
+    UDPSocket sock1;
+    UDPSocket sock2;
 
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     inet_pton(AF_INET, "192.168.1.4", &addr.sin_addr.s_addr);
     addr.sin_port = htons(3334);
-    auto b2 = bind(sock2, reinterpret_cast<const sockaddr *>(&addr), sizeof addr);
-    if (b2 == -1)exitWithError("Could not bind sock2");
+    sock2.bind(addr);
 
     addr.sin_port = htons(3333);
-    auto b1 = bind(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr);
-    if (b1 == -1)exitWithError("Could not bind sock1");
+    sock1.bind(addr);
 
 //    int l = listen(sock1, 20);
     thread t{
@@ -263,16 +260,10 @@ void UDPSocketTest() {
 #pragma ide diagnostic ignored "EndlessLoop"
                 while (true) {
                     sockaddr_in from{};
-                    socklen_t len;
-                    auto r = recvfrom(sock1, buf, sizeof buf, 0, reinterpret_cast<sockaddr *>(&from),
-                                      &len);
-
-                    if (r > 0) {
-                        char ip[INET_ADDRSTRLEN];
-                        inet_ntop(AF_INET, &from.sin_addr.s_addr, ip, sizeof ip);
-                        printf("Received %zd bytes from %s:%d\n", r, ip, ntohs(from.sin_port));
-                    } else
-                        exitWithError("Could not receive");
+                    auto r = sock1.receiveFrom(buf, sizeof buf, from);
+                    char ip[INET_ADDRSTRLEN];
+                    inet_ntop(AF_INET, &from.sin_addr.s_addr, ip, sizeof ip);
+                    printf("Received %zd bytes from %s:%d\n", r, ip, ntohs(from.sin_port));
                 }
 #pragma clang diagnostic pop
             }
@@ -283,61 +274,33 @@ void UDPSocketTest() {
         char buf[200];
         scanf("%s", buf);
         errno = 0;
-        size_t s = sendto(sock2, buf, strlen(buf) + 1, 0, (sockaddr *) &addr, sizeof addr);
+        size_t s = sock2.sendTo(buf, strlen(buf) + 1, addr);
         if (errno != 0)exitWithError("Could not send the message");
     }
 
 }
 
 void tunClientTest() {
-    socket_t sock = createUdpSocket();
+    UDPSocket sock;
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
     addr.sin_port = htons(3333);
 
-    if (connect(sock, (sockaddr *) &addr, sizeof addr) == -1)exitWithError("Could not connect");
+    sock.connect(addr);
     char msg[] = "HELLO";
-    if (send(sock, msg, (int) ::strlen(msg), 0) < strlen(msg))exitWithError("Could not send");
-
+    if (sock.send(msg, (int) ::strlen(msg)) < strlen(msg))throw length_error("Could not send it all");
 }
 
-void testVpnSubscriber() {
-    socket_t sock = createUdpSocket();
-    sockaddr_in addr{};
-    addr.sin_family = AF_INET;
-    inet_pton(AF_INET, ipAddr, &addr.sin_addr.s_addr);
-    addr.sin_port = htons(3333);
-    if (connect(sock, (sockaddr *) &addr, sizeof addr) == -1) {//warn: this might not be appopirate for windows.
-#ifdef _WIN32
-        printError("Could not connect", WSAGetLastError());
-        exit(1);
-#else
-        exitWithError("Could not connect");
-
-#endif
-    }
-
-    DatagramTunnel tunnel(sock);
-
-    TCPPacket packet(3072);
-    addr.sin_port = 55555;
-    packet.setSource(addr);
-    addr.sin_port = 3335;
-    packet.setDestination(addr);
-    packet.makeSyn(1, 0);
-    tunnel.writePacket(packet);
-
-}
 
 [[noreturn]] void udpFlushTest() {
-    int sock = createUdpSocket();
+    UDPSocket sock;
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     inet_pton(AF_INET, "1.1.1.1", &addr.sin_addr.s_addr);
     addr.sin_port = htons(80);
 
-    if (connect(sock, (sockaddr *) &addr, sizeof addr) == -1)exitWithError("Could not connect");
+    sock.connect(addr);
     char msg[5000]{'H'};
     auto msgStr = string(5000, 'H');
 
@@ -345,8 +308,8 @@ void testVpnSubscriber() {
     DatagramTunnel tunnel(sock);
     while (true) {
 #define msg_udp_flush msgStr.c_str()
-        if (send(sock, msg_udp_flush, ::strlen(msg_udp_flush), 0) < strlen(msg_udp_flush))
-            exitWithError("Could not send");
+        if (sock.send(msg_udp_flush, ::strlen(msg_udp_flush)) < strlen(msg_udp_flush))
+            throw length_error("Could not send it all");
 
 //        packet.makeNormal(100, 100);
 //        packet.setWindowSize(65535);
@@ -955,6 +918,7 @@ void testFakeReturn() {
 
 int main() {
     initPlatform();
+    testTcpMappedAddress();
 //    p2pBothTryToConnect(true);
 //    startHelloAndListen();
 }

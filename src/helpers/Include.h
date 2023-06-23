@@ -172,7 +172,7 @@ public:
     }
 
 
-    const char *what() const _GLIBCXX_TXN_SAFE_DYN _GLIBCXX_NOTHROW override {
+    [[nodiscard]] const char *what() const _GLIBCXX_TXN_SAFE_DYN _GLIBCXX_NOTHROW override {
         return msg.c_str();
     }
 
@@ -207,8 +207,37 @@ inline void initPlatform() {
 #endif
 }
 
+inline socket_t createRawTCPSocket(bool reuseAddress = false, bool nonBlocking = false, bool disableNagle = false) {
+    socket_t result;
+#ifdef _WIN32
+    result = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP);
+    if (result == INVALID_SOCKET)exitWithError("Could not create socket");
+#else
+    result = socket(AF_INET6, SOCK_STREAM, IPPROTO_TCP);
+    if (result == -1)exitWithError("Could not create the socket");
+#endif
 
-inline socket_t createUdpSocket(bool reuseAddress = false, bool nonBlocking = false, bool disableNagle = false) {
+    if (reuseAddress)
+        if (setsockopt(result, SOL_SOCKET, SO_REUSEADDR, (char *) &INT_ONE, sizeof(int)) == -1)
+            exitWithError("Could not set reuse address");
+    if (nonBlocking) {
+#ifdef  _WIN32
+        auto mode = 1UL;
+        if (ioctlsocket(result, FIONBIO, &mode) == -1)exitWithError("Could not set non blocking flag on socket");
+#else
+        if (fcntl(result, F_SETFL, O_NONBLOCK) == -1)exitWithError("Could not set non blocking flag on socket");
+#endif
+    }
+
+    if (disableNagle)
+        if (setsockopt(result, IPPROTO_TCP, TCP_NODELAY, (char *) &INT_ONE, sizeof(int)) == -1)
+            exitWithError("Could not disable Nagle algorithm");
+
+
+    return result;
+}
+
+inline socket_t createRawUDPSocket(bool reuseAddress = false, bool nonBlocking = false) {
     socket_t result;
 #ifdef _WIN32
     result = socket(AF_INET, SOCK_DGRAM, 0);
@@ -220,7 +249,7 @@ inline socket_t createUdpSocket(bool reuseAddress = false, bool nonBlocking = fa
 
 
     if (reuseAddress)
-        if (setsockopt(result, SOL_SOCKET, SO_REUSEADDR,(char *) &INT_ONE, sizeof(int)) == -1)
+        if (setsockopt(result, SOL_SOCKET, SO_REUSEADDR, (char *) &INT_ONE, sizeof(int)) == -1)
             exitWithError("Could not set reuse address");
 
     if (nonBlocking) {
@@ -232,15 +261,8 @@ inline socket_t createUdpSocket(bool reuseAddress = false, bool nonBlocking = fa
 #endif
     }
 
-    if (disableNagle)
-        if (setsockopt(result, IPPROTO_TCP, TCP_NODELAY,(char *) &INT_ONE, sizeof(int)) == -1)
-            exitWithError("Could not disable Nagle algorithm");
-
-
     return result;
 }
-
-
 
 
 #endif //TUNSERVER_HELPERS_INCLUDE_H

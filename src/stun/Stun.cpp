@@ -67,7 +67,7 @@ bool PerformStunRequest(std::string const& stun_server_ip,
     StunRequest stun_request;
     StunResponse stun_response;
 
-    int sockfd = createUdpSocket();
+    int sockfd = createRawUDPSocket();
 
     bzero(&servaddr, sizeof(servaddr));
     servaddr.sin_family = AF_INET;

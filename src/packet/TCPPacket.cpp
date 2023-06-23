@@ -10,7 +10,7 @@
 using namespace std;
 
 
-TCPPacket::TCPPacket(unsigned int size) : Packet(size) {
+TCPPacket::TCPPacket(unsigned int size) : IPPacket(size) {
     tcphdr *tcph = (tcphdr *) buffer + sizeof(iphdr);
     getIpHeader()->protocol = IPPROTO_TCP;
 

@@ -4,7 +4,7 @@ project(TunServer)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
 set(RUNTIME_OUTPUT_DIRECTORY build_windows)
-set(COMMON_SOURCES )
+set(COMMON_SOURCES)
 
 add_subdirectory(external/ArduinoJson)
 include_directories(external/ArduinoJson/src/ArduinoJson external/ArduinoJson/src)
@@ -20,27 +20,27 @@ include_directories(external/ArduinoJson/src/ArduinoJson external/ArduinoJson/sr
 #set(CURL_USE_WOLFSSL OFF)
 #set(CURL_USE_OPENSSL OFF)
 set(BUILD_SHARED_LIBS OFF)
-add_subdirectory( external/curl)
+add_subdirectory(external/curl)
 include_directories(external/ArduinoJson/src/ArduinoJson external/ArduinoJson/src external/curl/include)
 
 add_subdirectory(external/stun)
 include_directories(external/stun/include)
 
 # Executables
-add_executable(tunServer  src/handler/Main.cpp src/session/TCPSession.cpp src/tunnel/DatagramTunnel.cpp src/handler/Handler.cpp src/packet/TCPPacket.cpp ${COMMON_SOURCES})
+add_executable(tunServer src/handler/Main.cpp src/session/TCPSession.cpp src/handler/Handler.cpp src/packet/TCPPacket.cpp ${COMMON_SOURCES})
 
-add_executable(test src/Test.cpp src/tunnel/DatagramTunnel.cpp src/packet/TCPPacket.cpp ${COMMON_SOURCES})
+add_executable(test src/Test.cpp src/packet/TCPPacket.cpp ${COMMON_SOURCES})
 target_link_libraries(test PRIVATE stunmsg)
 
 add_executable(listener src/Listener.c)
 
 add_executable(handlerTest src/handler/HandlerTest.cpp
         src/session/TCPSession.cpp
-        src/tunnel/DatagramTunnel.cpp
+
         src/packet/TCPPacket.cpp
         ${COMMON_SOURCES} src/packet/CompressedTCPPacket.cpp src/packet/CompressedTCPPacket.h)
 
-add_executable(jsonTest src/json/JsonTest.cpp ${COMMON_SOURCES} )
+add_executable(jsonTest src/json/JsonTest.cpp ${COMMON_SOURCES})
 
 add_executable(curlTest src/CurlTest.cpp ${COMMON_SOURCES})
 target_link_libraries(curlTest PRIVATE libcurl)
@@ -50,7 +50,7 @@ add_executable(connectionBuilder src/connection/ConnectionBuilderTest.cpp
         ${COMMON_SOURCES} src/helpers/net/Socket.h src/helpers/net/Utilities.h src/helpers/net/SocketImp.h src/helpers/net/Stun.h)
 target_link_libraries(connectionBuilder PRIVATE libcurl stunmsg)
 
-add_executable(stun src/stun/Stun.cpp  ${COMMON_SOURCES})
+add_executable(stun src/stun/Stun.cpp ${COMMON_SOURCES})
 
 add_executable(stunLib src/stun/StunLib.cpp ${COMMON_SOURCES})
 target_link_libraries(stunLib PRIVATE stunmsg)
@@ -65,14 +65,14 @@ target_link_libraries(tunClient PRIVATE libcurl stunmsg)
 if (WIN32)
     set(WIN32_NETWORK_LIBS wsock32 ws2_32)
     target_link_libraries(tunServer PRIVATE ${WIN32_NETWORK_LIBS})
-    target_link_libraries(connectionBuilder PRIVATE  ${WIN32_NETWORK_LIBS})
-    target_link_libraries(curlTest PRIVATE  ${WIN32_NETWORK_LIBS})
+    target_link_libraries(connectionBuilder PRIVATE ${WIN32_NETWORK_LIBS})
+    target_link_libraries(curlTest PRIVATE ${WIN32_NETWORK_LIBS})
     target_link_libraries(listener PRIVATE ${WIN32_NETWORK_LIBS})
-    target_link_libraries(handlerTest PRIVATE  ${WIN32_NETWORK_LIBS})
-    target_link_libraries(stun PRIVATE  ${WIN32_NETWORK_LIBS})
-    target_link_libraries(test PRIVATE  ${WIN32_NETWORK_LIBS} )
-    target_link_libraries(stunLib PRIVATE  ${WIN32_NETWORK_LIBS})
-    target_link_libraries(tunClient PRIVATE  ${WIN32_NETWORK_LIBS})
+    target_link_libraries(handlerTest PRIVATE ${WIN32_NETWORK_LIBS})
+    target_link_libraries(stun PRIVATE ${WIN32_NETWORK_LIBS})
+    target_link_libraries(test PRIVATE ${WIN32_NETWORK_LIBS})
+    target_link_libraries(stunLib PRIVATE ${WIN32_NETWORK_LIBS})
+    target_link_libraries(tunClient PRIVATE ${WIN32_NETWORK_LIBS})
 else ()
 
 endif ()

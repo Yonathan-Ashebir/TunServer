@@ -20,36 +20,28 @@ using namespace std;
 void handleSingleConnection() {
     initPlatform();
 
-    socket_t tunnelFd = createUdpSocket();
+    UDPSocket tunnelSocket;
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     inet_pton(AF_INET, IP_ADDR, &addr.sin_addr.s_addr);
     addr.sin_port = htons(3333);
-    auto b1 = bind(tunnelFd, reinterpret_cast<const sockaddr *>(&addr), sizeof addr);
-    if (b1 == -1)exitWithError("Could not bind");
+    tunnelSocket.bind(addr);
 
     ::printf("Waiting for first packet\n");
 
     char buf[3072];
-    socklen_t len = sizeof(sockaddr_in);
     sockaddr_in from{};
-    auto r = recvfrom(tunnelFd, buf, sizeof buf, 0, reinterpret_cast<sockaddr *>(&from), &len);
-    if (r == -1)exitWithError("Could not receive from socket");
+    auto r = tunnelSocket.receiveFrom(buf, sizeof buf, from);
 
     char ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &from.sin_addr.s_addr, ip, sizeof ip);
-    printf("Received %d bytes from %s:%d and addrLen: %d\n", r, ip, ntohs(from.sin_port), len);
+    printf("Received %d bytes from %s:%d\n", r, ip, ntohs(from.sin_port));
+    tunnelSocket.connect(from);
 
-    auto c = connect(tunnelFd, (sockaddr *) &from, len);
-    if (c == -1)exitWithError("Could not connect socket");
-
-//    if (fcntl(tunnelFd, F_SETFL, O_NONBLOCK) == -1) {
-//        exitWithError("Could not set tunnel non-blocking");
-//    }
 #ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
 #endif
-    DatagramTunnel tunnel(tunnelFd);
+    DatagramTunnel tunnel(tunnelSocket);
     fd_set readSet;
     fd_set writeSet;
     fd_set errorSet;
@@ -88,36 +80,31 @@ void handleSingleConnection() {
 void handleDownload() {
     initPlatform();
 
-    socket_t tunnelFd = createUdpSocket();
+    UDPSocket tunnelSocket;
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     inet_pton(AF_INET, IP_ADDR, &addr.sin_addr.s_addr);
     addr.sin_port = htons(3333);
-    auto b1 = bind(tunnelFd, reinterpret_cast<const sockaddr *>(&addr), sizeof addr);
-    if (b1 == -1)exitWithError("Could not bind");
+    tunnelSocket.bind(addr);
 
     ::printf("Waiting for first firstSynPacket\n");
 
     char starterBuffer[3072];
     socklen_t socklen = sizeof(sockaddr_in);
     sockaddr_in from{};
-    auto r = recvfrom(tunnelFd, starterBuffer, sizeof starterBuffer, 0, reinterpret_cast<sockaddr *>(&from), &socklen);
-    if (r == -1)exitWithError("Could not receive from socket");
+    auto r = tunnelSocket.receiveFrom(starterBuffer, sizeof starterBuffer, from);
 
     char ip[INET_ADDRSTRLEN];
     inet_ntop(AF_INET, &from.sin_addr.s_addr, ip, sizeof ip);
     printf("Received %d bytes from %s:%d and addrLen: %d\n", r, ip, ntohs(from.sin_port), socklen);
 
-    auto c = connect(tunnelFd, (sockaddr *) &from, socklen);
-    if (c == -1)exitWithError("Could not connect socket");
+    tunnelSocket.connect(from);
 
-//    if (fcntl(tunnelFd, F_SETFL, O_NONBLOCK) == -1) {
-//        exitWithError("Could not set tunnel non-blocking");
-//    }
+
 #ifndef _WIN32
     signal(SIGPIPE, SIG_IGN);
 #endif
-    DatagramTunnel tunnel(tunnelFd);
+    DatagramTunnel tunnel(tunnelSocket);
     TCPPacket firstSynPacket(3072);
     do {
         tunnel.readPacket(firstSynPacket);
@@ -285,15 +272,9 @@ void handleDownload() {
 
     ::printf("Receiving from the application server is completed\n");
 
-    resendToClient.
+    resendToClient.join();
+    receiveFromClient.join();
 
-            join();
-
-    receiveFromClient.
-
-            join();
-
-    CLOSE(tunnelFd);
 }
 
 

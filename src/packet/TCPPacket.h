@@ -12,9 +12,9 @@
 #pragma once
 
 #include "../Include.h"
-#include "Packet.h"
+#include "IPPacket.h"
 
-class TCPPacket : public Packet {
+class TCPPacket : public IPPacket {
 public:
 
     explicit TCPPacket(unsigned int size);
@@ -446,7 +446,7 @@ unsigned short TCPPacket::getTcpOptionsLength() {
 }
 
 void TCPPacket::syncWithBuffer() {
-    Packet::syncWithBuffer();
+    IPPacket::syncWithBuffer();
 }
 
 void TCPPacket::setTcpOptionsLength(unsigned short len) {

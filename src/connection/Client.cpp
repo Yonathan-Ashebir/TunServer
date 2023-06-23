@@ -157,6 +157,7 @@ void test2() {
 //    if (inet_pton(AF_INET, "192.168.1.7", &_selectTestBindAddress.sin_addr) == -1)throw BadException("Could not set bind address");
 
     TCPSocket stunSocket;
+    stunSocket.setReuseAddress(true);
     stunSocket.bind(bindAddress);
     auto publicAddress = getTCPMappedAddress(stunSocket);
     if (inet_ntop(publicAddress->ss_family, (publicAddress->ss_family == AF_INET)

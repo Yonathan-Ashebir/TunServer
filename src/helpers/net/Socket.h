@@ -68,6 +68,8 @@ public:
 
     inline void regenerate();
 
+    inline bool isValid();
+
 protected:
     struct Data {
         socket_t socket{};
@@ -133,11 +135,33 @@ public:
 
     inline int trySend(const void *buf, int len, int options = 0);
 
+    template<class Buffer>
+    inline int trySendObject(Buffer &buf, int options = 0);
+
     inline int send(const void *buf, int len, int options = 0);
+
+    template<class Buffer>
+    inline int sendObject(Buffer &buf, int options = 0);
+
+    inline int sendIgnoreWouldBlock(const void *buf, int len, int options = 0);
+
+    template<class Buffer>
+    inline int sendObjectIgnoreWouldBlock(Buffer &buf, int options = 0);
 
     inline int tryReceive(void *buf, int len, int options = 0);
 
+    template<class Buffer>
+    inline int tryReceiveObject(Buffer &buf, int options = 0);
+
     inline int receive(void *buf, int len, int options = 0);
+
+    template<class Buffer>
+    inline int receiveObject(Buffer &buf, int options = 0);
+
+    inline int receiveIgnoreWouldBlock(void *buf, int len, int options = 0);;
+
+    template<class Buffer>
+    inline int receiveObjectIgnoreWouldBlock(Buffer &buf, int options = 0);
 };
 
 
@@ -164,15 +188,18 @@ public:
 
     inline void listen(int count = 20);
 
+    inline TCPSocket tryAccept(void *addr, socklen_t &len);
+
     inline TCPSocket accept(void *addr, socklen_t &len);
 
     template<class Addr>
-    inline TCPSocket accept(Addr addr);
+    inline TCPSocket accept(Addr &addr);
 
 };
 
 
 class UDPSocket : public InetSocket {
+public:
     inline explicit UDPSocket(bool ipv6 = false);
 
     template<class Val>
@@ -184,6 +211,38 @@ class UDPSocket : public InetSocket {
 
     template<class Val>
     inline void getUDPOption(int option, Val &val);
+
+    inline int tryReceiveFrom(void *buf, int len, void *addr, socklen_t &addrLen, int options = 0);
+
+    template<typename Buffer>
+    inline int tryReceiveObjectFrom(Buffer &buf, void *addr, socklen_t &addrLen, int options = 0);
+
+    inline int receiveFrom(void *buf, int len, void *addr, socklen_t &addrLen, int options = 0);
+
+    template<typename Buffer>
+    inline int receiveObjectFrom(Buffer &buf, void *addr, socklen_t &addrLen, int options = 0);
+
+    template<typename Addr>
+    inline int receiveFrom(void *buf, int len, Addr &addr, int options = 0);
+
+    template<typename Buffer, typename Addr>
+    inline int receiveObjectFrom(Buffer &buf, Addr &addr, int options = 0);
+
+    inline int trySendTo(void *buf, int len, void *addr, socklen_t addrLen, int options = 0);
+
+    template<typename Buffer>
+    inline int trySendObjectTo(Buffer &buf, void *addr, socklen_t addrLen, int options = 0);
+
+    inline int sendTo(void *buf, int len, void *addr, socklen_t addrLen, int options = 0);
+
+    template<typename Buffer>
+    inline int sendObjectTo(Buffer &buf, void *addr, socklen_t addrLen, int options = 0);
+
+    template<typename Addr>
+    inline int sendTo(void *buf, int len, Addr &addr, int options = 0);
+
+    template<typename Buffer, typename Addr>
+    inline int sendObjectTo(Buffer &buf, Addr &addr, int options = 0);
 };
 
 #include "SocketImp.h"

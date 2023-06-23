@@ -216,9 +216,9 @@ int InetSocket::tryReceive(void *buf, int len, int options) {
 }
 
 int InetSocket::receive(void *buf, int len, int options) {
-    int sent;
-    if ((sent = tryReceive(buf, len, options)) == -1)throw SocketException("Could not send");
-    return sent;
+    int total;
+    if ((total = tryReceive(buf, len, options)) == -1)throw SocketException("Could not send");
+    return total;
 }
 
 void Socket::close() {
@@ -244,6 +244,48 @@ unique_ptr<sockaddr_storage> InetSocket::getBindAddress() {
     return result;
 }
 
+int InetSocket::sendIgnoreWouldBlock(const void *buf, int len, int options) {
+    int sent;
+    if ((sent = trySend(buf, len, options)) == -1 && !isWouldBlock())throw SocketException("Could not send");
+    return sent;
+}
+
+int InetSocket::receiveIgnoreWouldBlock(void *buf, int len, int options) {
+    int total;
+    if ((total = tryReceive(buf, len, options)) == -1 && !isWouldBlock())throw SocketException("Could not send");
+    return total;
+}
+
+template<class Buffer>
+int InetSocket::receiveObjectIgnoreWouldBlock(Buffer &buf, int options) {
+    return receiveIgnoreWouldBlock(&buf, sizeof buf, options);
+}
+
+template<class Buffer>
+int InetSocket::receiveObject(Buffer &buf, int options) {
+    return receive(&buf, sizeof buf, options);
+}
+
+template<class Buffer>
+int InetSocket::tryReceiveObject(Buffer &buf, int options) {
+    return tryReceive(&buf, sizeof buf, options);
+}
+
+template<class Buffer>
+int InetSocket::sendObjectIgnoreWouldBlock(Buffer &buf, int options) {
+    return sendIgnoreWouldBlock(&buf, sizeof buf, options);
+}
+
+template<class Buffer>
+int InetSocket::sendObject(Buffer &buf, int options) {
+    return send(&buf, sizeof buf, options);
+}
+
+template<class Buffer>
+int InetSocket::trySendObject(Buffer& buf, int options) {
+    return trySend(&buf, sizeof buf, options);
+}
+
 void Socket::regenerate() {
     close();
     if ((data->socket = ::socket(data->domain, data->type, data->protocol)) == -1)
@@ -264,6 +306,10 @@ Socket::Socket(int sock, int domain, int type, int proto) {
     data->domain = domain;
     data->type = type;
     data->protocol = proto;
+}
+
+bool Socket::isValid() {
+    return data->socket != -1;
 }
 
 template<class Addr>
@@ -327,8 +373,15 @@ TCPSocket TCPSocket::accept(void *addr, socklen_t &len) {
     return *reinterpret_cast<TCPSocket *>(&sock);
 }
 
+TCPSocket TCPSocket::tryAccept(void *addr, socklen_t &len) {
+    socket_t res;
+    res = ::accept(data->socket, reinterpret_cast<sockaddr *>(addr), &len);
+    Socket sock(res, data->domain, data->type, data->protocol);
+    return *reinterpret_cast<TCPSocket *>(&sock);
+}
+
 template<class Addr>
-TCPSocket TCPSocket::accept(Addr addr) {
+TCPSocket TCPSocket::accept(Addr &addr) {
     socklen_t len = sizeof addr;
     auto res = accept(&addr, len);
     if (len > sizeof addr)throw length_error("Peer ip trimmed");
@@ -355,6 +408,72 @@ void UDPSocket::setUDPOption(int option, void *val, int len) {
 }
 
 UDPSocket::UDPSocket(bool ipv6) : InetSocket(SOCK_DGRAM, ipv6) {
+}
+
+int UDPSocket::tryReceiveFrom(void *buf, int len, void *addr, socklen_t &addrLen, int options) {
+    return ::recvfrom(data->socket, (char *) buf, len, options, reinterpret_cast<sockaddr *>(addr),
+                      &addrLen); // NOLINT(cppcoreguidelines-narrowing-conversions)
+}
+
+int UDPSocket::receiveFrom(void *buf, int len, void *addr, socklen_t &addrLen, int options) {
+    auto total = tryReceiveFrom(buf, len, addr, addrLen, options);
+    if (total == -1)throw SocketException("Receive from failed");
+    return total;
+}
+
+int UDPSocket::trySendTo(void *buf, int len, void *addr, socklen_t addrLen, int options) {
+    return ::sendto(data->socket, buf, len, options, reinterpret_cast<sockaddr *>(addr),
+                    addrLen); // NOLINT(cppcoreguidelines-narrowing-conversions)
+}
+
+int UDPSocket::sendTo(void *buf, int len, void *addr, socklen_t addrLen, int options) {
+    auto sent = trySendTo(buf, len, addr, addrLen, options);
+    if (sent == -1)throw SocketException("Send to failed");
+    return sent;
+}
+
+template<typename Buffer>
+int UDPSocket::tryReceiveObjectFrom(Buffer &buf, void *addr, socklen_t &addrLen, int options) {
+    return tryReceiveFrom(&buf, sizeof buf, addr, addrLen, options);
+}
+
+template<typename Buffer>
+int UDPSocket::receiveObjectFrom(Buffer &buf, void *addr, socklen_t &addrLen, int options) {
+    return receiveFrom(&buf, sizeof buf, addr, addrLen, options);
+}
+
+template<typename Buffer, typename Addr>
+int UDPSocket::receiveObjectFrom(Buffer &buf, Addr &addr, int options) {
+    return tryReceiveFrom(&buf, sizeof buf, &addr, sizeof addr, options);
+}
+
+template<typename Buffer>
+int UDPSocket::trySendObjectTo(Buffer &buf, void *addr, socklen_t addrLen, int options) {
+    return trySendTo(&buf, sizeof buf, addr, addrLen, options);
+}
+
+template<typename Buffer>
+int UDPSocket::sendObjectTo(Buffer &buf, void *addr, socklen_t addrLen, int options) {
+    return sendTo(&buf, sizeof buf, addr, addrLen, options);
+}
+
+template<typename Buffer, typename Addr>
+int UDPSocket::sendObjectTo(Buffer &buf, Addr &addr, int options) {
+    return trySendTo(&buf, sizeof buf, addr, sizeof addr, options);
+}
+
+template<typename Addr>
+int UDPSocket::sendTo(void *buf, int len, Addr &addr, int options) {
+    return sendTo(buf, len, &addr, sizeof addr, options);
+}
+
+template<typename Addr>
+int UDPSocket::receiveFrom(void *buf, int len, Addr &addr, int options) {
+    socklen_t addrLen = sizeof addr;
+    auto total = receiveFrom(buf, len, &addr, addrLen, options);
+    if (total == -1)throw SocketException("Receive from failed");
+    if (addrLen > sizeof addr)throw length_error("Peer address trimmed in receive from");
+    return total;
 }
 
 template<class Val>

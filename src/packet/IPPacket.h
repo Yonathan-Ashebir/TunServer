@@ -15,20 +15,28 @@
 
 #define DEFAULT_MSS 576
 
-class Packet {
+class IPPacket {
 public:
     const unsigned int MIN_SIZE = 300;
 
-    Packet() = delete;
+    IPPacket() = delete;
 
-    Packet(Packet &) = delete;
+    IPPacket(IPPacket &old) : maxSize(old.maxSize), buffer(old.buffer), count(old.count) {
+        (*old.count)++;
+    };
 
-    Packet(Packet &&) = delete;
+    IPPacket(IPPacket &&old) : maxSize(old.maxSize), buffer(old.buffer), count(old.count) {
+        old.buffer = nullptr;
+        old.count = nullptr;
+    };
 
+    IPPacket &operator=(IPPacket &other) = delete;
 
-    inline explicit Packet(unsigned int size);
+    IPPacket &operator=(IPPacket &&other) = delete;
 
-    inline ~Packet();
+    inline explicit IPPacket(unsigned int size);
+
+    inline ~IPPacket();
 
     virtual bool isValid() = 0;
 
@@ -62,8 +70,8 @@ public:
 
 protected:
     unsigned char *buffer{};
-
     const unsigned int maxSize{};
+    unsigned *count = new unsigned{1};
 
     inline iphdr *getIpHeader() const;
 
@@ -74,7 +82,7 @@ private:
     unsigned short length{};
 };
 
-Packet::Packet(unsigned int size) : maxSize(size) {
+IPPacket::IPPacket(unsigned int size) : maxSize(size) {
     if (size < MIN_SIZE)
         throw invalid_argument("size is " + to_string(size) + "size can not be below " + to_string(MIN_SIZE));
 
@@ -91,13 +99,13 @@ Packet::Packet(unsigned int size) : maxSize(size) {
 }
 
 
-Packet::~Packet() {
+IPPacket::~IPPacket() {
     delete buffer;
     ::printf("Packet destroyed\n");
 }
 
 
-void Packet::setDoFragment(bool shouldFragment) {
+void IPPacket::setDoFragment(bool shouldFragment) {
     if (shouldFragment)
         getIpHeader()->frag_off &= ~(1 << 14);
     else
@@ -107,59 +115,59 @@ void Packet::setDoFragment(bool shouldFragment) {
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "readability-convert-member-functions-to-static"
 
-bool Packet::getDoFragment() {
+bool IPPacket::getDoFragment() {
     return getIpHeader()->frag_off & 1 << 14;
 }
 
 #pragma clang diagnostic pop
 
-unsigned int Packet::available() const {
+unsigned int IPPacket::available() const {
     return maxSize - getLength();
 }
 
-unsigned int Packet::getSourceIp() const {
+unsigned int IPPacket::getSourceIp() const {
     return ntohl(getIpHeader()->saddr);
 }
 
-unsigned int Packet::getDestinationIp() const {
+unsigned int IPPacket::getDestinationIp() const {
     return ntohl(getIpHeader()->daddr);
 }
 
-void Packet::setSourceIp(unsigned int addr) {
+void IPPacket::setSourceIp(unsigned int addr) {
     getIpHeader()->saddr = htonl(addr);
 }
 
-void Packet::setDestination(unsigned int addr) {
+void IPPacket::setDestination(unsigned int addr) {
     getIpHeader()->daddr = htonl(addr);
 }
 
-unsigned int Packet::getMaxSize() const {
+unsigned int IPPacket::getMaxSize() const {
     return maxSize;
 }
 
-unsigned short Packet::getLength() const {
+unsigned short IPPacket::getLength() const {
     return length;
 }
 
-unsigned int Packet::getProtocol() const {
+unsigned int IPPacket::getProtocol() const {
     return getIpHeader()->protocol;
 }
 
-iphdr *Packet::getIpHeader() const {
+iphdr *IPPacket::getIpHeader() const {
     auto *iph = (iphdr *) buffer;
     return iph;
 }
 
-unsigned short Packet::getIpHeaderLength() const {
+unsigned short IPPacket::getIpHeaderLength() const {
     return getIpHeader()->ihl * 4;
 }
 
-void Packet::setLength(unsigned short len) {//warn: not check for invalid values
+void IPPacket::setLength(unsigned short len) {//warn: not check for invalid values
     getIpHeader()->tot_len = htons(len);
     length = len;
 }
 
-void Packet::syncWithBuffer() {
+void IPPacket::syncWithBuffer() {
     auto iph = getIpHeader();
     length = ntohs(iph->tot_len);
 }
