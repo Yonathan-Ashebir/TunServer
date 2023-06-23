@@ -2,6 +2,8 @@
 // Created by yoni_ash on 5/29/23.
 //
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 #ifndef TUNSERVER_BUILDER_H
 #define TUNSERVER_BUILDER_H
 
@@ -9,181 +11,184 @@
 
 using namespace std;
 
-template<typename sock_info>
-struct connection {
-    socket_t socket;
-    sockaddr_in address;
-    sock_info info;
-    chrono::time_point<chrono::steady_clock, chrono::nanoseconds> startTime{};
-};
-
-template<typename sock_info>
+template<typename SockInfo>
 class Builder {
 public:
-    using on_error_t = ::function<void(socket_t sock, sockaddr_in remoteAddr, sock_info info, int errorNum)>;
-    using on_connect_t = ::function<void(socket_t sock, sockaddr_in remoteAddr, sock_info info)>;
+    using OnError = ::function<void(TCPSocket &sock, const sockaddr_storage &remoteAddr, const SockInfo &info,
+                                    int errorNum)>;
+    using OnConnect = ::function<void(TCPSocket &sock, const sockaddr_storage &remoteAddr, const SockInfo &info)>;
+
+    typedef SockInfo Info;
 
     Builder() = delete;
 
-    Builder(Builder<sock_info> &) = delete;
+    Builder(Builder<SockInfo> &) = delete;
 
-    Builder(Builder<sock_info> &&) = delete;
+    Builder(Builder<SockInfo> &&) = delete;
 
-    Builder &operator=(Builder<sock_info> &) = delete;
+    Builder &operator=(Builder<SockInfo> &) = delete;
 
-    Builder &operator=(Builder<sock_info> &&) = delete;
+    Builder &operator=(Builder<SockInfo> &&) = delete;
 
-    explicit Builder(on_connect_t onConnect);;
+    explicit Builder(OnConnect onConnect);;
 
-    Builder(on_connect_t onConnect, on_error_t onError);
+    Builder(OnConnect onConnect, OnError onError);
 
-    void setOnConnect(on_connect_t onConn);
+    void setOnConnect(OnConnect onConn);
 
-    void setOnError(on_error_t onErr);
+    void setOnError(OnError onErr);
 
-    void setBindAddress(sockaddr_storage &addr);
+    void setBindPort(unsigned short port);
 
-    sockaddr_storage getBindAddress();
+    unsigned short getBindPort();
 
-    void connect(sockaddr_in addr, sock_info info);
+    void connect(sockaddr_storage &addr, SockInfo &info, chrono::milliseconds timeout = DEFAULT_TIMEOUT);
 
 private:
-    on_connect_t onConnect;
-    on_error_t onError;
-    vector<connection<sock_info>> connections{};
-    socket_t maxFd{};
+    struct Connection {
+        TCPSocket socket;
+        sockaddr_storage address;
+        SockInfo info;
+        chrono::time_point<chrono::steady_clock, chrono::nanoseconds> endTime;
+
+
+        Connection(TCPSocket &socket, const sockaddr_storage &addr, const SockInfo &info,
+                   const decltype(endTime) &startTime) : socket(
+                socket), address(addr), info(info), endTime(startTime) {}
+
+        Connection(const Connection &&old) noexcept: address(old.address), info(old.info), endTime(old.endTime) {
+            this->socket = move(old.socket);
+        }
+
+        Connection &operator=(Connection &&old) noexcept {
+            this->socket = move(old.socket);
+            this->address = old.address;
+            this->info = old.info;
+            this->endTime = old.endTime;
+            return *this;
+        }
+    };
+
+    //keep temporarily
+    const static OnConnect DEFAULT_ON_CONNECT;
+    const static OnError DEFAULT_ON_ERROR;
+    constexpr static chrono::milliseconds DEFAULT_TIMEOUT{30000};
+
+    OnConnect onConnect;
+    OnError onError;
+    vector<Connection> connections{};
+    socket_t maxFd{};//todo: handle well
     fd_set writeSet{};
     fd_set errorSet{};
     bool isRunning{};
     mutex mtx{};
-    sockaddr_storage bindAddr{};
-    chrono::milliseconds connectionTimeout{30000};
+    unsigned short bindPort{};
 
     void handleConnections();
 };
 
-template<typename sock_info>
-void Builder<sock_info>::setBindAddress(sockaddr_storage &addr) {
-    bindAddr = addr;
+
+template<typename SockInfo>
+void Builder<SockInfo>::setBindPort(unsigned short port) {
+    bindPort = port;
 }
 
-template<typename sock_info>
-sockaddr_storage Builder<sock_info>::getBindAddress() {
-    return bindAddr;
+template<typename SockInfo>
+unsigned short Builder<SockInfo>::getBindPort() {
+    return bindPort;
 }
 
-template<typename sock_info>
-Builder<sock_info>::Builder(Builder::on_connect_t onConnect) : Builder(onConnect,
-                                                                       [](socket_t sock, sockaddr_in remoteAddr,
-                                                                          sock_info info,
-                                                                          int errorNum) {}) {}
+template<typename SockInfo>
+Builder<SockInfo>::Builder(Builder::OnConnect onConnect) : Builder(onConnect,
+                                                                   DEFAULT_ON_ERROR) {}
 
-template<typename sock_info>
-Builder<sock_info>::Builder(Builder::on_connect_t onConnect, Builder::on_error_t onError) : onConnect(onConnect),
-                                                                                            onError(onError) {
-    if (onConnect == nullptr || onError == nullptr)throw invalid_argument("Null call back supplied");
+template<typename SockInfo>
+Builder<SockInfo>::Builder(Builder::OnConnect onConnect, Builder::OnError onError) : onConnect(onConnect),
+                                                                                     onError(onError) {
+    if (onConnect == nullptr || onError == nullptr)throw invalid_argument("A null callback supplied");
 }
 
-template<typename sock_info>
-void Builder<sock_info>::setOnConnect(Builder::on_connect_t onConn) {
+template<typename SockInfo>
+void Builder<SockInfo>::setOnConnect(Builder::OnConnect onConn) {
     if (onConn == nullptr)throw invalid_argument("Null 'on connect' callback is disallowed");
     onConnect = onConn;
 }
 
-template<typename sock_info>
-void Builder<sock_info>::setOnError(Builder::on_error_t onErr) {
+template<typename SockInfo>
+void Builder<SockInfo>::setOnError(Builder::OnError onErr) {
     if (onErr == nullptr)throw invalid_argument("Null 'on error' callback is disallowed");
     onError = onErr;
 }
 
-template<typename sock_info>
-void Builder<sock_info>::connect(sockaddr_in addr, sock_info info) {
-    socket_t sock = createTcpSocket(true, true);
+template<typename SockInfo>
+void Builder<SockInfo>::connect(sockaddr_storage &addr, SockInfo &info, chrono::milliseconds timeout) {
+    TCPSocket sock(addr.ss_family == AF_INET6);
+    sock.setBlocking(false);
+    if (bindPort != 0)sock.bind(bindPort);
 
-    if ((reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port) != 0) {
-        if (bind(sock, reinterpret_cast<const sockaddr *>(&bindAddr), sizeof bindAddr) == -1)
-            exitWithError("Could not bind to specified address");
-    }
-    if (::connect(sock, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1 && !isConnectionInProgress())
-        exitWithError("Could not issue a connect on socket");
+    if (sock.tryConnect(addr) == -1 && !isConnectionInProgress())
+        throw SocketException("Could not issue a connect on socket");
 
-    connections.push_back(connection<sock_info>{sock, addr, info, chrono::steady_clock::now()});
-    FD_SET(sock, &writeSet);
-    FD_SET(sock, &errorSet);
-    maxFd = max(maxFd, sock + 1);
+    connections.push_back(move(Connection(sock, addr, info, chrono::steady_clock::now() + timeout)));
+    sock.setIn(writeSet);
+    sock.setIn(errorSet);
     unique_lock<mutex> lock(mtx);
+    maxFd = max(maxFd, sock.getFD() + 1);
     if (!isRunning) {
         isRunning = true;
         thread th{[this] { handleConnections(); }};
         th.detach();
     }
-
     lock.unlock();
 }
 
-template<typename sock_info>
-void Builder<sock_info>::handleConnections() {
+template<typename SockInfo>
+void Builder<SockInfo>::handleConnections() {
     timeval timeout{0, 10000};
     while (true) {
         fd_set writeCopy = writeSet;
         fd_set errorCopy = errorSet;
 
         /*It is asserted that there will be atleast one socket for selection*/
-        int count = select(maxFd, nullptr, &writeCopy, &errorCopy, &timeout);
-#ifdef _WIN32
-        if (count == SOCKET_ERROR) {
-            exitWithError("Could not use select on tunnel's file descriptor", WSAGetLastError());
-        }
-#else
-        if (count == -1)exitWithError("Could not use select on tunnel's file descriptor");
-#endif
+        int count;
+        if ((count = select(maxFd, nullptr, &writeCopy, &errorCopy, &timeout)) == -1)
+            throw SocketException("Could not use select on tunnel's file descriptor");
 
-        for (auto ind = connections.begin(); ind != connections.end();) {
-            auto conn = *ind;
-            if (FD_ISSET(conn.socket, &writeCopy)) {
-                int error;
-                socklen_t len = sizeof error;
-                if (getsockopt(conn.socket, SOL_SOCKET, SO_ERROR, (char *) &error, &len) == -1)
-                    exitWithError("Could not check connect invocation's error status");
-                if (error == 0)
+        typedef typename decltype(connections)::iterator iterator;
+        auto removeConnection = [&](const iterator &it) -> const iterator {
+            auto &conn = *it;
+            conn.socket.unsetFrom(writeSet);
+            conn.socket.unsetFrom(errorSet);
+            unique_lock<mutex> lock(mtx);
+            if (maxFd == conn.socket.getFD() + 1)maxFd--;
+            lock.unlock();
+            return connections.erase(it);
+        };
+
+        for (auto ind = connections.begin(); ind != connections.end() && count > 0;) {
+            auto &conn = *ind;
+            if (conn.socket.isSetIn(writeCopy)) {
+                int err = conn.socket.getLastError();
+                if (err == 0) {
                     onConnect(conn.socket, conn.address, conn.info);
-                else {
-                    if (chrono::steady_clock::now() - conn.startTime <= connectionTimeout && error ==
-                                                                                             #ifdef _WIN32
-                                                                                             ECONNREFUSED
-                                                                                             #else
-                                                                                             ECONNREFUSED
-#endif
-                            ) {
-                        FD_CLR(conn.socket, &writeSet);
-                        FD_CLR(conn.socket, &errorSet);
-
-                        socket_t newSock = createTcpSocket(true, true);
-                        if ((reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port) != 0) {
-                            if (bind(newSock, reinterpret_cast<const sockaddr *>(&bindAddr), sizeof bindAddr) == -1)
-                                throw FormattedException("Could not bind to specified address");
-                        }
-                        if (::connect(newSock, reinterpret_cast<const sockaddr *>(&conn.address),
-                                      sizeof conn.address) == -1 && !isConnectionInProgress())
-                            throw FormattedException("Could not issue a connect on socket");
-                        conn.socket = newSock;
-                    } else{
-                        onError(conn.socket, conn.address, conn.info, error);
-                        CLOSE(conn.socket);
+                    ind = removeConnection(ind);
+                } else {
+                    if (chrono::steady_clock::now() < conn.endTime &&
+                        isCouldNotConnectBadNetwork(err)) {
+                        conn.socket.connect(conn.address);
+                    } else {
+                        onError(conn.socket, conn.address, conn.info, err);
+                        conn.socket.close();
+                        ind = removeConnection(ind);
                     }
                 }
-
-                ind = connections.erase(ind);
-            } else if (FD_ISSET(conn.socket, &errorCopy)) {
-                int error;
-                socklen_t len = sizeof error;
-                if (getsockopt(conn.socket, SOL_SOCKET, SO_ERROR, (char *) &error, &len) == -1)
-                    exitWithError("Could not check connect invocation's error status");
-                FD_CLR(conn.socket, &writeSet);
-                FD_CLR(conn.socket, &errorSet);
+                count--;
+            } else if (conn.socket.isSetIn(errorCopy)) {
+                int error = conn.socket.getLastError();
                 onError(conn.socket, conn.address, conn.info, error);
-                ind = connections.erase(ind);
-                CLOSE(conn.socket);
+                conn.socket.close();
+                ind = removeConnection(ind);
+                count--;
             } else ind++;
         }
 
@@ -198,3 +203,5 @@ void Builder<sock_info>::handleConnections() {
 
 
 #endif //TUNSERVER_BUILDER_H
+
+#pragma clang diagnostic pop

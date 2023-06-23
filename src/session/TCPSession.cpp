@@ -7,12 +7,11 @@
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 
-TCPSession::TCPSession(Tunnel &tunnel, socket_t &maxFd, fd_set *rcv, fd_set *snd, fd_set *err) : tunnel(tunnel),
+TCPSession::TCPSession(Tunnel &tunnel, socket_t &maxFd, fd_set &rcv, fd_set &snd, fd_set &err) : tunnel(tunnel),
+                                                                                                 receiveSet(rcv),
+                                                                                                 sendSet(snd),
+                                                                                                 errorSet(err),
                                                                                                  maxFd(maxFd) {
-    if (!(rcv && snd && err))throw invalid_argument("Null set is not allowed");
-    receiveSet = rcv;
-    sendSet = snd;
-    errorSet = err;
 }
 
 TCPSession::~TCPSession() {
@@ -38,7 +37,7 @@ void TCPSession::receiveFromClient(TCPPacket &packet) {
             packet.makeResetAck(packet.getSequenceNumber() + packet.getSegmentLength());
         tunnel.writePacket(packet);
 #ifdef LOGGING
-        ::printf("Sent reset from receiveFromClient\n");
+        ::printf("Sent regenerate from receiveFromClient\n");
 #endif
     };
     auto sendAck = [&packet, this] {
@@ -54,13 +53,13 @@ void TCPSession::receiveFromClient(TCPPacket &packet) {
     if (packet.isSyn() && !packet.isAck()) {
         switch (state) {
             case CLOSED: {
-                socket_t sock = createTcpSocket();
-                int res = connect(sock, (sockaddr *) &server, sizeof(sockaddr_in));
-                if (res != 0 && errno != EAGAIN && errno != EINPROGRESS && errno != EALREADY && errno != EISCONN) {
+                TCPSocket sock;
+                auto res = sock.tryConnect(server);
+                if (res != 0 && !isConnectionInProgress()) {
                     sendReset();
                 } else {
                     //re-establish
-                    fd = sock;
+                    mSock = sock;
                     sendNewDataSequence = sendSequence = sendUnacknowledged = sendNext = generateSequenceNo();
                     receiveSequence = receiveUser = receiveNext = receivePushSequence =
                             packet.getSequenceNumber() + 1;
@@ -151,8 +150,8 @@ void TCPSession::receiveFromClient(TCPPacket &packet) {
                         auto now = chrono::steady_clock::now();
                         rtt = min(now - lastSendTime, MAX_RTT);
                         lastTimeAcknowledgmentAccepted = now;
-                        FD_SET(fd, receiveSet);
-                        maxFd = max(maxFd, fd + 1);
+                        mSock.setIn(receiveSet);
+                        maxFd = max(maxFd, mSock.getFD() + 1);
                         state = ESTABLISHED;
 #ifdef LOGGING
                         ::printf("Received ack and set rtt = %ld\n", rtt.count() / 1000000);
@@ -250,8 +249,7 @@ bool TCPSession::receiveFromServer(TCPPacket &packet) {
     trimSendBuffer();
     auto amt = getSendAvailable();
     if (amt == 0)return false;
-    auto total = recv(fd, reinterpret_cast<char *>(sendBuffer + sendNewDataSequence - sendSequence), (int) amt,
-                      0);//warn:not logically safe
+    int total = mSock.tryReceive(sendBuffer + sendNewDataSequence - sendSequence, (int) amt);//warn:not logically safe
     if (total != -1) {
         //Advance next read point
         sendNewDataSequence += total;
@@ -265,7 +263,7 @@ bool TCPSession::receiveFromServer(TCPPacket &packet) {
             ::printf("Server read finished\n");
 #endif
             //This is important as it a closed stream, will always be readable
-            FD_CLR(fd, receiveSet);
+            mSock.unsetFrom(receiveSet);
             sendNewDataSequence++;
             serverReadFinished = true;
 
@@ -285,31 +283,23 @@ void TCPSession::flushDataToServer(TCPPacket &packet) {
     if (clientReadFinished && receiveUser == receiveNext - 1) {
         receiveUser++;
         if (isDownStreamComplete())closeConnection();
-        else shutdown(fd, SHUT_WR);
+        else mSock.shutdownWrite();
     } else {
         auto amt = receiveNext - receiveUser - (clientReadFinished ? 1 : 0);
         if (amt > 0) {
-//            if (receivePushSequence > receiveUser &&
-//                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &SOCKET_VAL_INT, sizeof(int)) == -1) {
-//                exitWithError("Could not disable Nagle algorithm");
-//            }
-            size_t total = send(fd, reinterpret_cast<const char *>(receiveBuffer + receiveUser - receiveSequence),
-                                (int) amt,
-                                0);
+//            if (receivePushSequence > receiveUser)mSock.enableNagle(false);
+            int total = mSock.send(receiveBuffer + receiveUser - receiveSequence, (int) amt);
 
 #ifdef  LOGGING
             ::printf("Flushed %zu bytes to server\n", total);
 #endif
-//            if (receivePushSequence > receiveUser &&
-//                setsockopt(fd, IPPROTO_TCP, TCP_NODELAY, &SOCKET_VAL_INT, sizeof(int)) == -1) {
-//                exitWithError("Could not re-enable Nagle algorithm");
-//            }
+//            if (receivePushSequence > receiveUser)mSock.enableNagle(true);
             if (total != -1) {
                 receiveUser += total;
                 if (clientReadFinished && receiveUser == receiveNext - 1) {
                     receiveUser++;
                     if (isDownStreamComplete())closeConnection();
-                    else shutdown(fd, SHUT_WR);
+                    else mSock.shutdownWrite();
                 } else if (!clientReadFinished)
                     trimReceiveBuffer();
             } else if (!isWouldBlock()) {
@@ -322,7 +312,7 @@ void TCPSession::flushDataToServer(TCPPacket &packet) {
                 packet.makeResetSeq(sendNext);
                 tunnel.writePacket(packet);
 #ifdef LOGGING
-                ::printf("Failed to flush it all to the server. So, sent reset\n");
+                ::printf("Failed to flush it all to the server. So, sent regenerate\n");
 #endif
                 closeConnection();
             }

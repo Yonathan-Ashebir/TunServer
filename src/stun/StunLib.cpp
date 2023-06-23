@@ -27,7 +27,7 @@ void test() {
 //    request << stun::attribute::fingerprint();
 
     errno = 0;
-    socket_t sock = createTcpSocket();
+    TCPSocket sock;
     sockaddr_in server{AF_INET, 3478};
     addrinfo hints{0, AF_INET, SOCK_STREAM}, *results;
 
@@ -44,27 +44,24 @@ void test() {
     ::printf("Stun server address is %s:%d\n", buf, ntohs(server.sin_port));
 
     sockaddr_in localAddress{AF_INET, htons(0), INADDR_ANY};
-    if (bind(sock, reinterpret_cast<const sockaddr *>(&localAddress), sizeof localAddress) == -1)
-        exitWithError("Could not bind to local port");
+    sock.bind(localAddress);
 
-    if (connect(sock, reinterpret_cast<const sockaddr *>(&server), sizeof server) == -1)
-        exitWithError("Could not connect to stun server");
-
+    sock.connect(server);
 //    char stunData[20]{0};
 //    *(unsigned short *) stunData = htons(0x0001);
 //    *(unsigned int *) &stunData[4] = htonl(0x2112A442);
 
-    if (send(sock, request.data(), request.size(), 0) == -1)exitWithError("Could not send request");
+    sock.send(request.data(), request.size(), 0);
     ::printf("Sent request of size: %zu\n", request.size());
 
     stun::message response{};
 
-    size_t bytes = recv(sock, response.data(), response.capacity(), 0);
+    size_t bytes = sock.receive(response.data(), response.capacity(), 0);
     if (bytes < stun::message::header_size)exitWithError("Response trimmed");
     if (response.size() > response.capacity()) {
         size_t read_bytes = response.size();
         response.resize(response.size());
-        recv(sock, response.data() + bytes, read_bytes - bytes, 0);
+        sock.receive(response.data() + bytes, read_bytes - bytes, 0);
     }
 
     using namespace stun::attribute;
@@ -96,22 +93,6 @@ void test() {
     }
 }
 
-void testTcpMappedAddress() {
-    auto sock = createTcpSocket();
-    auto address = getTCPMappedAddress(sock);
-
-    char addr[100];
-    unsigned short port = ntohs((address->ss_family == AF_INET)
-                                ? reinterpret_cast<sockaddr_in *>(address.get())->sin_port
-                                : reinterpret_cast<sockaddr_in6 *>(address.get())->sin6_port);
-    inet_ntop(address->ss_family,
-              (address->ss_family == AF_INET) ? (void *) &reinterpret_cast<sockaddr_in *>(address.get())->sin_addr
-                                              : (void *) &reinterpret_cast<sockaddr_in6 *>(address.get())->sin6_addr,
-              addr, sizeof addr);
-    ::printf("Mapped tcp address = %s:%d\n", addr, port);
-}
-
 int main() {
     initPlatform();
-    testTcpMappedAddress();
 }

@@ -20,7 +20,7 @@ void ConnectionFetcher::start(const string &url) {
         shouldRun = true;
         lock.unlock();
         thread th{[this, url] { fetchConnections(url); }};
-        th.join();
+        th.join();//todo: replace this
     }
 }
 
@@ -30,7 +30,7 @@ ConnectionFetcher::ConnectionFetcher(const string &serverName, const on_result_t
 }
 
 void ConnectionFetcher::setServerName(const string &name) {
-    smatch matches;
+    smatch matches{};
     regex pat(R"([-_a-zA-Z0-9- ]*)");
     if (regex_search(name, matches, pat)) {
         serverName = matches[0];
@@ -85,7 +85,7 @@ void ConnectionFetcher::fetchConnections(const string &url) {
                                                 ? (void *) &(reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_addr)
                                                 : (void *) &(reinterpret_cast<sockaddr_in6 *>(publicAddress.get())->sin6_addr),
                       publicIp, sizeof publicIp) == nullptr) {
-            throw FormattedException("Could not parse the public address");
+            throw BadException("Could not parse the public address");
         }
         publicPort = ntohs((publicAddress->ss_family == AF_INET)
                            ? reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_port
@@ -93,7 +93,6 @@ void ConnectionFetcher::fetchConnections(const string &url) {
 #ifdef LOGGING
         printf("My address = %s:%d\n", publicIp, publicPort);
 #endif
-        sleep(2);
     };
     updateAddress();
 
@@ -122,7 +121,7 @@ void ConnectionFetcher::fetchConnections(const string &url) {
             /*Parse result*/
             long http_code = 0;
             curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
-            if (http_code != 200 && http_code != 302) {
+            if (http_code != 200) {
 #ifdef LOGGING
                 fprintf(stderr, "Request failed: %ld\n",
                         http_code);
@@ -149,14 +148,12 @@ void ConnectionFetcher::fetchConnections(const string &url) {
                         try {
                             long clientId = conn["client_id"];
                             if (clientId < 1)continue;
-                            sockaddr_in addr{};
-                            addr.sin_family = AF_INET;
+                            string addrName = conn["addr"];
                             int port = conn["port"];
                             if (port < 1 || port > 65535)continue;
-                            addr.sin_port = htons(port);
-                            string addrName = conn["addr"];
-                            if (inet_pton(AF_INET, conn["addr"], &addr.sin_addr.s_addr) == -1)continue;//todo: only ipv4
-
+                            sockaddr_storage addr{};
+                            initialize(addr, AF_INET, addrName.c_str(), port);
+                            //todo: only ipv4
                             result.push_back(ResultItem{id, addr});
                         } catch (...) {}
                     }
@@ -170,7 +167,7 @@ void ConnectionFetcher::fetchConnections(const string &url) {
 
 
         updateAddress();
-        usleep(5000000);
+        usleep(1000000);
     }
     /* always cleanup */
 #ifdef LOGGING

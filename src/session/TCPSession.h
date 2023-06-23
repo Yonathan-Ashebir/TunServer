@@ -37,16 +37,16 @@ public:
 
 
     TCPSession(Tunnel &tunnel, socket_t &maxFd,
-               fd_set *rcv, fd_set
-                  *snd,
-               fd_set *err
+               fd_set &rcv, fd_set
+               &snd,
+               fd_set &err
     );
 
     ~TCPSession();
 
     inline states getState();
 
-    inline socket_t getFd() const;
+    inline TCPSocket getSocket() const;
 
     inline bool canHandle(TCPPacket &packet);
 
@@ -62,8 +62,7 @@ private:
     states state = CLOSED;
     bool clientReadFinished = false;
     bool serverReadFinished = false;
-    socket_t fd{};
-    socket_t &maxFd;
+    TCPSocket mSock{};
 
     Tunnel &tunnel;
     mutex mtx;
@@ -81,7 +80,7 @@ private:
     unsigned int sendNewDataSequence{};
     bool sendBufferHasSpace = true;
     unsigned int retryCount{};
-    chrono::duration<long, ratio<1, 1000000000>> rtt{};
+    chrono::nanoseconds rtt{};
     chrono::time_point<chrono::steady_clock, chrono::nanoseconds> lastSendTime{};
     chrono::time_point<chrono::steady_clock, chrono::nanoseconds> lastTimeAcknowledgmentAccepted{};
 
@@ -92,9 +91,10 @@ private:
     // to be consumed by the user or in our case sends to the application server
     unsigned int receiveNext{}; //the sequence number of next expected data
     unsigned int receivePushSequence{};
-    fd_set *receiveSet{};
-    fd_set *sendSet{};
-    fd_set *errorSet{};
+    socket_t &maxFd;
+    fd_set &receiveSet;
+    fd_set &sendSet;
+    fd_set &errorSet;
 
     inline void closeConnection();
 
@@ -121,10 +121,10 @@ TCPSession::states TCPSession::getState() {
 
 void TCPSession::closeConnection() {
     //todo: might affect opposite stream
-    FD_CLR(fd, receiveSet);
-    FD_CLR(fd, sendSet);
-    FD_CLR(fd, errorSet);
-    CLOSE(fd);
+    mSock.unsetFrom(receiveSet);
+    mSock.unsetFrom(sendSet);
+    mSock.unsetFrom(errorSet);
+    mSock.close();
     state = CLOSED;
 }
 
@@ -198,8 +198,8 @@ bool TCPSession::canHandle(TCPPacket &packet) {
     return packet.isFrom(source);
 }
 
-socket_t TCPSession::getFd() const {
-    return fd;
+TCPSocket TCPSession::getSocket() const {
+    return mSock;
 }
 
 

@@ -1,6 +1,8 @@
 /cmake-build-debug
 /cmake-build-release
 /build
+/build_windows
+/build_linux
 /utils
 /*.log
 /Changed.list

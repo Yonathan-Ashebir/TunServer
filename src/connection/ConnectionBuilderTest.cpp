@@ -1,7 +1,6 @@
 //
 // Created by yoni_ash on 5/29/23.
 //
-#include <iostream>
 #include "Builder.h"
 #include "ConnectionFetcher.h"
 #include <curl/curl.h>
@@ -9,17 +8,19 @@
 using namespace std;
 
 void test1() {
+    unsigned short bindPort = 3339;
     sockaddr_storage bindAddr{AF_INET};
-    auto* bindAddrIn = reinterpret_cast<sockaddr_in *>(&bindAddr);
-    bindAddrIn->sin_port = htons(3339);
+    auto *bindAddrIn = reinterpret_cast<sockaddr_in *>(&bindAddr);
+    bindAddrIn->sin_port = htons(bindPort);
 
-    Builder<unsigned int> builder{[](socket_t sock, sockaddr_in addr, unsigned int info) {
-        printf("Socket %d connected\n", sock);
-        CLOSE(sock);
-    }, [](socket_t sock, sockaddr_in addr, unsigned int info, int errorNum) {
-        printf("Socket %d failed\n", sock);
+    Builder<unsigned int> builder{[](TCPSocket &sock, const sockaddr_storage &addr, const unsigned int &info) {
+        printf("Socket %d connected\n", sock.getFD());
+        sock.close();
+    }, [](TCPSocket &sock, const sockaddr_storage &addr, const unsigned int &info, int errorNum) {
+        printf("Socket %d failed\n", sock.getFD());
+        sock.close();
     }};
-    builder.setBindAddress(bindAddr);
+    builder.setBindPort(bindPort);
 
     ConnectionFetcher fetcher("the server", [&builder](vector<ResultItem> &result) {
         ::printf("Fetched %zu connection requests\n", result.size());

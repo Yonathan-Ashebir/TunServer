@@ -3,8 +3,8 @@ project(TunServer)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
-set(CMAKE_BINARY_DIR build)
-set(COMMON_SOURCES src/helpers/Error.cpp)
+set(RUNTIME_OUTPUT_DIRECTORY build_windows)
+set(COMMON_SOURCES )
 
 add_subdirectory(external/ArduinoJson)
 include_directories(external/ArduinoJson/src/ArduinoJson external/ArduinoJson/src)
@@ -47,7 +47,7 @@ target_link_libraries(curlTest PRIVATE libcurl)
 
 add_executable(connectionBuilder src/connection/ConnectionBuilderTest.cpp
         src/connection/ConnectionFetcher.cpp
-        ${COMMON_SOURCES})
+        ${COMMON_SOURCES} src/helpers/net/Socket.h src/helpers/net/Utilities.h src/helpers/net/SocketImp.h src/helpers/net/Stun.h)
 target_link_libraries(connectionBuilder PRIVATE libcurl stunmsg)
 
 add_executable(stun src/stun/Stun.cpp  ${COMMON_SOURCES})

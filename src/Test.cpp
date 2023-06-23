@@ -42,28 +42,24 @@ void shiftTest() {
 sockaddr_in _selectTestBindAddress;
 
 void selectTest() {
-    int listener = createTcpSocket();
+    TCPSocket listener;
     _selectTestBindAddress = {AF_INET, 3333};
-    if (bind(listener, (sockaddr *) &_selectTestBindAddress, sizeof(sockaddr_in)) == -1)exitWithError("Could not bind");
-    listen(listener, 20);
-
+    listener.bind(_selectTestBindAddress);
+    listener.listen();
 
     pthread_t sendThread;
-
-
     pthread_create(&sendThread, nullptr, [](void *ptr) -> void * {
-        int sender = createTcpSocket();
-        if (connect(sender, (sockaddr *) &_selectTestBindAddress, sizeof(sockaddr_in)) == -1)
-            printError("Could not connect");
+        TCPSocket sender;
+        sender.connect(_selectTestBindAddress);
         const char message[] = "How long the country will last is uncertain"
                                "How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain";
 
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "EndlessLoop"
         while (true) {
-            size_t sent = send(sender, message, sizeof message, 0);
+            sender.send(message, sizeof message);
             if (isWouldBlock()) {
-//                cout << "Would"
+                cout << "Would block" << endl;
             } else if (errno != 0) {
                 break;
             }
@@ -136,7 +132,7 @@ void testUniformInit() {
 
 }
 
-void measureCPUTime(void call()) {
+void measureCPUTime(function<void()> call) {
     ::clock_t start, end;
     start = ::clock();
     call();
@@ -145,54 +141,34 @@ void measureCPUTime(void call()) {
     printf("Spent %ld clocks or %ld millis\n", diff, diff / CLOCKS_PER_SEC * 1000);
 }
 
-void measureElapsedTime(void call()) {
+void measureElapsedTime(function<void()> call) {
     auto start_time = std::chrono::high_resolution_clock::now();
     call();
     auto end_time = std::chrono::high_resolution_clock::now();
     auto time = end_time - start_time;
     printf("Spent %ld millis\n", time / std::chrono::milliseconds(1));
-
 }
 
-sockaddr_in measureConnectTimeAddr;
 
 void measureConnectTime() {
-    auto call = [] {
-        addrinfo *info;
-
-        int result = getaddrinfo("www.google.com", "80", nullptr, &info);
-        if (result != 0) {
-            perror(gai_strerror(result));
-            exit(1);
-        }
-        char buf[INET_ADDRSTRLEN];
-
-        inet_ntop(info->ai_family, &((sockaddr_in *) info->ai_addr)->sin_addr, buf, sizeof buf);
-        ::printf("Ip addr: %s\n", buf);
-        measureConnectTimeAddr = *(sockaddr_in *) info->ai_addr;
+    sockaddr_storage measureConnectTimeAddr{};
+    auto call = [&] {
+        auto result = resolveHost("www.google.com", "80");
+        measureConnectTimeAddr = *(sockaddr_storage *) result->ai_addr;
+        cout << "Public ip: " << getAddressString(measureConnectTimeAddr) << endl;
     };
     measureElapsedTime(call);
-//    measureConnectTimeAddr.sin_port = htons(55557);
+
     char c;
     cin >> c;
-    measureElapsedTime([] {
-        int sock = createTcpSocket();
+    measureElapsedTime([&] {
+        TCPSocket sock;
         while (true) {
-            if (connect(sock, (sockaddr *) &measureConnectTimeAddr, sizeof measureConnectTimeAddr) == -1) {
+            if (sock.tryConnect(measureConnectTimeAddr) == -1) {
                 printError("Could not connect");
-                socklen_t len;
-                int err = 0;
-
-
-                int res = getsockopt(sock, SOL_SOCKET, SO_ERROR, (char *) &err, &len);
-                if (res != 0)exitWithError("Failed to get socket options");
-                printError("Socket option error", err);
-
-                usleep(10000);
+                printError("Socket option error", sock.getLastError());
             } else {
                 ::printf("Connected Successfully\n");
-                int lastTest = connect(sock, (sockaddr *) &measureConnectTimeAddr, sizeof measureConnectTimeAddr);
-                if (lastTest != 0)printError("Error after success");
                 break;
             }
 
@@ -206,26 +182,18 @@ void testSocketIO() {
     addr.sin_port = htons(80);
     addr.sin_family = AF_INET;
 
-    int sock = createTcpSocket();
-    if (connect(sock, (sockaddr *) &addr, sizeof addr) == -1)exitWithError("Could not connect");
-    errno = 0;
-    sleep(1);
-    if (connect(sock, (sockaddr *) &addr, sizeof addr) == -1) {
-        exitWithError("Could not connect");
-    } else {
-        ::printf("Connected Successfully\n");
-    }
+    TCPSocket sock;
+    sock.connect(addr);
+    ::printf("Connected Successfully\n");
+
     const char *buf = "GET / HTTP/1.0\r\n\r\n";
-    size_t total = send(sock, buf, 0, 0);
+    size_t total = sock.send(buf, 0);
     printError("After send");
     cout << "Total: " << total << endl;
-    errno = 0;
 
-
-    total = send(sock, buf, sizeof(buf), 0);
+    total = sock.send(buf, strlen(buf), 0);
     printError("After send");
     ::printf("Total: %zu\n", total);
-    errno = 0;
     cout << endl;
 
 }
@@ -416,17 +384,15 @@ void memoryAllocateTest() {
 }
 
 void startHelloServer() {
-    auto sock = createTcpSocket();
-    if (sock == -1)exitWithError("Could not create a socket");
-
+    TCPSocket sock;
     sockaddr_in address{};
     socklen_t len;
     inet_pton(AF_INET, "192.168.1.4", &address.sin_addr);
     address.sin_port = htons(3335);
     address.sin_family = AF_INET;
 
-    if (bind(sock, (sockaddr *) &address, sizeof address) == -1)exitWithError("Could not bind");
-    if (listen(sock, 10) == -1)exitWithError("Could not listen");
+    sock.bind(address);
+    sock.listen();
 
     char buf[INET_ADDRSTRLEN];
     memset(buf, 0, INET_ADDRSTRLEN);
@@ -438,29 +404,20 @@ void startHelloServer() {
     printf("Listening at %s:%d\n", buf, ntohs(address.sin_port));
     while (true) {
         sockaddr_in addr{};
-        len = sizeof addr;
-        auto client = accept(sock, (sockaddr *) &addr, &len);
-        if (client == -1) {
-            exitWithError("Could not accept a client");
-        }
-
+        auto client = sock.accept(addr);
         memset(buf, 0, INET_ADDRSTRLEN);
 
         if (inet_ntop(AF_INET, &addr.sin_addr, buf, INET_ADDRSTRLEN) == NULL)
             exitWithError("Could not log server:host info");
         printf("Accepted client from %s:%d\n", buf, ntohs(addr.sin_port));
-
         auto message = "Hello World!\n";
-
-        send(client, message, strlen(message), 0);//assuming it sends it all at ounce
+        client.send(message, strlen(message));//assuming it sends it all at ounce
 //        sleep(1000);
-
-        CLOSE(client);
     }
 }
 
 [[noreturn]] void startHelloAndListen() {
-    auto sock = createTcpSocket(true);
+    TCPSocket sock;
 
     sockaddr_in address{};
     socklen_t len;
@@ -469,8 +426,8 @@ void startHelloServer() {
     address.sin_family = AF_INET;
     static int _count{};
 
-    if (bind(sock, (sockaddr *) &address, sizeof address) == -1)exitWithError("Could not bind");
-    if (listen(sock, 10) == -1)exitWithError("Could not listen");
+    sock.bind(address);
+    sock.listen();
 
     char buf[INET_ADDRSTRLEN];
     memset(buf, 0, INET_ADDRSTRLEN);
@@ -482,11 +439,7 @@ void startHelloServer() {
     printf("Listening at %s:%d\n", buf, ntohs(address.sin_port));
     while (true) {
         sockaddr_in addr{};
-        len = sizeof addr;
-        auto client = accept(sock, (sockaddr *) &addr, &len);
-        if (client == -1) {
-            exitWithError("Could not accept a client");
-        }
+        TCPSocket client = sock.accept(addr);
         _count++;
         int count = _count;
 
@@ -496,21 +449,20 @@ void startHelloServer() {
             exitWithError("Could not log server:host info");
         printf("Accepted client %d from %s:%d\n", count, buf, ntohs(addr.sin_port));
 
-        thread th{[client, count] {
+        thread th{[&, client] {
+            TCPSocket cl = client;
 //            auto message = "Hello World!\n";
 //            if (send(client, message, strlen(message), 0) == -1)
-//                throw FormattedException("Could not say hello");//assuming it sends it all at ounce
+//                throw BadException("Could not say hello");//assuming it sends it all at ounce
             char buf[1000];
             while (true) {
-                auto rec = recv(client, buf, sizeof(buf), 0);
+                auto rec = cl.tryReceive(buf, sizeof(buf), 0);
                 if (rec == -1) {
                     printError("Failed to receive from the client");
-                    CLOSE(client);
                     break;
                 }
                 if (rec == 0) {
                     ::printf("Client %d finished\n", count);
-                    CLOSE(client);
                     break;
                 } else {
                     ::printf("Read %zd bytes from client %d\n", rec, count);
@@ -529,26 +481,22 @@ void startHelloServer() {
                                         "<h2>Your client has issued a malformed or illegal request.</h2>\n"
                                         "<h2></h2>\n"
                                         "</body></html>";
-                        if (send(client, response, strlen(response), 0) == -1)
-                            throw FormattedException(
-                                    "Could not send http response");//assuming it sends it all at ounce
+                        cl.send(response, strlen(response));
                         ::printf("Client %d's request has been responded to\n", count);
                         break;
                     }
                 }
             }
-            CLOSE(client);
         }};
         th.detach();
     }
 }
 
 void testSocketReuseAddress() {
-    socket_t sock1 = createTcpSocket(true);
-    socket_t sock2 = createTcpSocket(true);
-    socket_t sock3 = createTcpSocket(true);
-    socket_t sock4 = createTcpSocket(true);
-    socklen_t len = sizeof(int);
+    TCPSocket sock1;
+    TCPSocket sock2;
+    TCPSocket sock3;
+    TCPSocket sock4;
 
 
     sockaddr_in addr{};
@@ -558,102 +506,80 @@ void testSocketReuseAddress() {
     addr.sin_addr.s_addr = INADDR_ANY;
 //    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
 
-    if (bind(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
-        exitWithError("Could not bind sock1");
-    if (bind(sock2, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
-        exitWithError("Could not bind sock2");
-    if (bind(sock3, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
-        exitWithError("Could not bind sock3");//Can not bind after listening starts
-//    if (bind(sock4, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
-//        exitWithError("Could not bind sock4");
+    sock1.bind(addr);
+    sock2.bind(addr);
+    sock3.bind(addr);
+//    sock4.bind(addr);
 
-    if (listen(sock2, 20) == -1)exitWithError("Sock2 could not listen");
+    sock2.listen();
 
     addr.sin_port = htons(80);
     inet_pton(AF_INET, "212.53.40.40", &addr.sin_addr.s_addr);
 //    inet_pton(AF_INET, "1.1.1.1", &addr.sin_addr.s_addr);
-    if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1) {
-        exitWithError("Could not connect sock1 to remote server");
-    }
+    sock1.connect(addr);
+
     unsigned char tx[12];
     stun::message message{STUN_BINDING_REQUEST, tx};
-    if (send(sock1, (char *) message.data(), message.size(), 0) == -1)
-        exitWithError("Could not send on sock1");
+    sock1.send(message.data(), message.size());
     ::printf("Sock1 connected\n");
-    CLOSE(sock1);
+    sock1.close();
 
     sleep(1);
 
     /*Does not work without this on windows*/
 //    inet_pton(AF_INET, "1.1.1.1", &addr.sin_addr.s_addr);
-    if (connect(sock3, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
-        exitWithError("Could not connect sock3 to remote server");
-    if (send(sock3, "Mr is me", 8, 0) == -1)exitWithError("Could not send on sock3");
+    sock3.connect(addr);
+    sock3.send("Mr is me", 8);
     ::printf("Sock3 connected\n");
-    CLOSE(sock3);
+    sock3.close();
 
-    sleep(6);
+//    sleep(6);
 
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
     addr.sin_port = htons(33332);
 //    inet_pton(AF_INET, "212.53.40.40", &addr.sin_addr.s_addr);
-    if (connect(sock4, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
-        exitWithError("Could not connect sock4 to the listening socket");
+    sock4.connect(addr);
 
     //Won't work
-//    if (connect(sock3, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
-//        exitWithError("Could not connect sock3 to the listening socket");
+    sock3.connect(addr);
 
-    socket_t accepted{};
-    len = sizeof addr;
-    if ((accepted = accept(sock2, reinterpret_cast<sockaddr *>(&addr), &len)) == -1)
-        exitWithError("Could not accept socket on sock2");
+    TCPSocket accepted = sock2.accept(addr);
     char addrName[INET_ADDRSTRLEN];
-    inet_ntop(AF_INET, &addr.sin_addr, addrName, len);//info: not checking for errors
-    ::printf("Accepted client from %s:%d\n", addrName, ntohs(addr.sin_port));
-
-    //Won't be able to accept sock3
-    if ((accepted = accept(sock2, reinterpret_cast<sockaddr *>(&addr), &len)) == -1)
-        exitWithError("Could not accept socket on sock2");
-    inet_ntop(AF_INET, &addr.sin_addr, addrName, len);//info: not checking for errors
+    inet_ntop(AF_INET, &addr.sin_addr, addrName, sizeof addrName);//info: not checking for errors
     ::printf("Accepted client from %s:%d\n", addrName, ntohs(addr.sin_port));
 }
 
 void testTCPSocketReconnect() {
-    socket_t sock1 = createTcpSocket(false);
+    TCPSocket sock1;
 
     sockaddr_in addr{AF_INET, htons(3334), INADDR_ANY};
 //    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
 
-    if (bind(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
-        exitWithError("Could not bind sock1");
+    sock1.bind(addr);
 
     addr.sin_port = htons(80);
     inet_pton(AF_INET, "1.1.1.1", &addr.sin_addr.s_addr);
 
-    if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
-        exitWithError("Could not connect first time");
+    sock1.connect(addr);
     ::printf("Primary session succeeded\n");
 
     addr.sin_family = AF_UNSPEC;
-    if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
-        exitWithError("Could not dissolve past connection");
+    sock1.connect(addr);
     ::printf("Disconnected successfully\n");
     addr.sin_family = AF_INET;
 
-    if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
-        exitWithError("Could not connect again");
+    sock1.connect(addr);;
     ::printf("Secondary session succeeded\n");
 }
 
 void testTCPSocketRetryConnect() {
-    socket_t sock1 = createTcpSocket(true);
+    TCPSocket sock1;
+    sock1.setReuseAddress(true);
 
     sockaddr_in addr{AF_INET, htons(3337), INADDR_ANY};
 //    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
 
-    if (bind(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1)
-        exitWithError("Could not bind sock1");
+    sock1.bind(addr);
 
     addr.sin_port = htons(800);
     inet_pton(AF_INET, "212.53.40.40", &addr.sin_addr.s_addr);
@@ -661,8 +587,7 @@ void testTCPSocketRetryConnect() {
     chrono::milliseconds timeout{30000};
 
     while (true) {
-        if (connect(sock1, reinterpret_cast<const sockaddr *>(&addr), sizeof addr) == -1) {
-
+        if (sock1.tryConnect(addr) == -1) {
 #ifdef _WIN32
             auto err = WSAGetLastError();
             if (err == WSAECONNREFUSED || err == WSAETIMEDOUT)
@@ -674,13 +599,12 @@ void testTCPSocketRetryConnect() {
                     printf("Timed out");
                     break;
                 }
-            } else throw FormattedException("Could not connect");
+            } else throw BadException("Could not connect");
         } else {
             printf("Connected successfully");
             break;
-        };
+        }
     }
-    CLOSE(sock1);
 }
 
 #define cat(a, b) a ## b
@@ -696,7 +620,7 @@ void testPreProcessor() {
 
 void testTcpMappedAddress() {
     sockaddr_storage bindAddr{AF_INET};
-    reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port = htons(12121);
+    reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port = htons(12421);
     auto address = getTCPMappedAddress(bindAddr);
 //    usleep(500000);
 //    address = getTCPMappedAddress(bindAddr);
@@ -789,8 +713,8 @@ void testMemoryLeakOnException() {
     int max = 100000;
     for (int ind = 0; ind < max; ind++) {
         try {
-            throw FormattedException("Exception message");
-        } catch (FormattedException exception) {
+            throw BadException("Exception message");
+        } catch (BadException exception) {
             if (ind % (max / 5) == 0) {
                 printf("%s\n", exception.what());
                 printf("Thrown %d times, %f\n", ind, (float) (ind + 1) / max);
@@ -806,18 +730,14 @@ void reuseAddress() {
     sockaddr_in remoteAddr{AF_INET, htons(8)};
     inet_pton(AF_INET, "212.53.40.40", &remoteAddr.sin_addr);
     while (true) {
-        socket_t sock = createTcpSocket(true);
+        TCPSocket sock;
 #ifdef LOGGING
-        printf("Have generated socket: %d\n", sock);
+        printf("Have generated socket: %d\n", sock.getFD());
 #endif
 
-        if (bind(sock, reinterpret_cast<const sockaddr *>(&bindAddr), sizeof(sockaddr_in)) == -1) {
-            exitWithError("Could not bind socket for curl");
-        }
-        if (connect(sock, reinterpret_cast<const sockaddr *>(&remoteAddr), sizeof(sockaddr_in)) == -1) {
-            exitWithError("Could not connect");
-        }
-        CLOSE(sock);
+        sock.bind(bindAddr);
+        sock.connect(remoteAddr);
+        sock.close();
         usleep(1000000);
     }
 
@@ -827,57 +747,55 @@ void p2pBothTryToConnect(bool random = false) {
     sockaddr_in bindAddress1{AF_INET, htons(random ? 0 : 21324), INADDR_ANY};
     sockaddr_in bindAddress2{AF_INET, htons(random ? 0 : 41371), INADDR_ANY};
 
-    socket_t sock1 = createTcpSocket(true);
-    socket_t sock2 = createTcpSocket(true);
-    if (bind(sock1, reinterpret_cast<const sockaddr *>(&bindAddress1), sizeof bindAddress1) == -1)
-        exitWithError("Could not bind sock1");
-    if (bind(sock2, reinterpret_cast<const sockaddr *>(&bindAddress2), sizeof bindAddress2) == -1)
-        exitWithError("Could not bind sock2");
+    TCPSocket sock1;
+    TCPSocket sock2;
+    sock1.setReuseAddress(true);
+    sock2.setReuseAddress(true);
+    sock1.bind(bindAddress1);
+    sock2.bind(bindAddress2);
+
     auto mp1 = getTCPMappedAddress(sock1);
     auto mp2 = getTCPMappedAddress(sock2);
     socklen_t len = sizeof bindAddress1;
-    if (getsockname(sock1, reinterpret_cast<sockaddr *>(&bindAddress1),
-                    &len) == -1)
-        throw FormattedException("Could not get bindAddress1");
-    len = sizeof bindAddress2;
-    if (getsockname(sock2, reinterpret_cast<sockaddr *>(&bindAddress2),
-                    &len) == -1)
-        throw FormattedException("Could not get bindAddress2");
-    CLOSE(sock1);
-    CLOSE(sock2);
+    sock1.getBindAddress(bindAddress1);
+    sock2.getBindAddress(bindAddress2);
+    sock1.close();
+    sock2.close();
 
-    sock1 = createTcpSocket(true);
-    if (bind(sock1, reinterpret_cast<const sockaddr *>(&bindAddress1), sizeof bindAddress1) == -1)
-        exitWithError("Could not bind sock1 at the loop");
+    sock1.regenerate();
+    sock1.setReuseAddress(true);
+    sock1.bind(bindAddress1);
     auto t = thread{[&] {
 //        this_thread::sleep_for(chrono::milliseconds(20000));
-        if (connect(sock1, reinterpret_cast<const sockaddr *>(mp2.get()), sizeof(*mp2)) == -1) {
+        if (sock1.tryConnect(*mp2) == -1) {
             printError("Sock1 could not connect at attempt "/* + to_string(ind + 1)*/);
         } else printf("Sock1 connected\n");
     }};
 
+    sock2.regenerate();
+    sock2.setReuseAddress(true);
+    sock2.bind(bindAddress2);
+
     for (int ind = 0; ind < 10; ind++) {
-        sock2 = createTcpSocket(true);
-        if (bind(sock2, reinterpret_cast<const sockaddr *>(&bindAddress2), sizeof bindAddress2) == -1)
-            exitWithError("Could not bind sock2 at the loop");
-        if (connect(sock2, reinterpret_cast<const sockaddr *>(mp1.get()), sizeof(*mp1)) == -1) {
+        if (sock2.tryConnect(*mp1) == -1) {
             printError("Sock2 could not connect at attempt " + to_string(ind + 1));
-        } else printf("Sock2 connected\n");
-        CLOSE(sock2);
+        } else {
+            printf("Sock2 connected\n");
+            break;
+        }
         usleep(500000);
     }
     t.join();
-    CLOSE(sock1);
 }
 
 void stunIndicate(socket_t sock) {
     stun::message indicator{stun::message::binding_indication};
     if (send(sock, reinterpret_cast<const char *>(indicator.data()), indicator.size(), 0) == -1)
-        throw FormattedException("Could not send stun indication");
+        throw BadException("Could not send stun indication");
 }
 
-void testStuntReuseSocket() {
-    auto sock = createTcpSocket();
+void testStunReuseSocket() {
+    TCPSocket sock;
     auto mp1 = getTCPMappedAddress(sock);
 //    while(true){
 //        stunIndicate(sock);
@@ -894,19 +812,16 @@ void testStunReuseAddress() {
     sockaddr_in otherStunAddr{AF_INET, htons(3478)};
     inet_pton(AF_INET, "193.22.17.97", &otherStunAddr.sin_addr);
     for (int count = 0; count < 20; count++) {
-        shared_ptr<sockaddr_storage> mp;
+        unique_ptr<sockaddr_storage> mp;
         if (count % 2 == 1) {
             mp = getTCPMappedAddress(bindAddress);
         } else {
-            auto sock = createTcpSocket(true);
-            if (setsockopt(sock, SOL_SOCKET, SO_LINGER, &ln, sizeof ln) == -1)
-                throw FormattedException("Could not set linger on socket");
-            if (bind(sock, reinterpret_cast<const sockaddr *>(&bindAddress), sizeof bindAddress) == -1)
-                throw FormattedException("Could not bind");
-            if (connect(sock, reinterpret_cast<const sockaddr *>(&otherStunAddr), sizeof otherStunAddr) == -1)
-                throw FormattedException("Could not connect to the other stun server");
+            TCPSocket sock;
+            sock.setLinger(ln);
+            sock.bind(bindAddress);
+            sock.connect(otherStunAddr);
+            throw BadException("Could not connect to the other stun server");
             mp = getTCPMappedAddress(sock, true);
-            CLOSE(sock);
         }
 
         printf("Resolved public address of %s, trier %d\n", getAddressString(*mp).c_str(), count + 1);
@@ -919,13 +834,129 @@ void testClientServerQuery() {
 
 }
 
+class A {
+public:
+    int i{};
+};
+
+void testConst() {
+    const A a;
+//    a.i = 4; //Not allowed
+    A b;
+//    a = b; // Also not, if opeerator not overrieden
+    b = b;
+    A &&c = move(b);
+    c.i = 5;
+
+    char *const string1 = "hello";
+    string1[0] = 'b';
+//    string1 = "Bye"; //Not allowed
+
+    const char *string2 = "hello";
+//    string2[0] = 'b'; //Not alloed
+    string2 = "lo";
+}
+
+void testTypeId() {
+    char c;
+    auto t = chrono::steady_clock::now();
+    cout << typeid(t).name() << endl;
+}
+
+void testStringOverload(string str) {//
+    printf("The one with string is called\n");
+}
+
+void testStringOverload(char *str) {//
+    printf("The one with char * is called\n");
+}
+
+void testStringOverload(const char *str) {//
+    printf("The one with const char * is called\n");
+}
+
+void testStringLiteralEquality() {
+    char *literal1 = "hello";
+    char arr[] = "hello"; //can not use literal1 to init arr
+    const char *literal2 = "hello";
+    printf("Arr == literal: %d and literal == literal: %d\n", arr == literal1, literal1 == literal2);
+}
+
+class Parent {
+    int a;
+public:
+    Parent() {};
+
+    Parent(Parent &p) {
+        cout << "Parent copy constructor called" << endl;
+
+    }
+
+    Parent(Parent &&p) {
+        cout << "Parent move constructor called" << endl;
+    }
+
+
+    virtual Parent &operator=(Parent &) {
+        cout << "Parent copy called" << endl;
+    }
+
+    virtual Parent &operator=(Parent &&) {
+        cout << "Parent move called" << endl;
+    }
+};
+
+class Child : public Parent {
+    int b;
+public:
+    explicit Child() : Parent() {};
+
+    virtual Child &operator=(Child &) {
+        cout << "Child copy called" << endl;
+    }
+
+    virtual Child &operator=(Child &&) {
+        cout << "Child move called" << endl;
+    }
+};
+
+void testInheritanceOfCopyMoveOperators() {
+    Child c1;
+    auto method = [](Child c) {};
+//    method(c1);
+//    Child c2 = c1;
+//    method(move(c1));
+//    Child c2 = move(c1); //Won't work with out the constructors: constructors vs operators
+
+    Child c3;
+    c3 = c1; //Won't work with out the operator in child: operators inheritance, child's
+
+    Parent &p1 = c1;
+    Parent p3;
+    p3 = p1;//call parent's
+    p3 = c1;//call parent's
+    p1 = c1;//call parent's
+    c3 = move(c1);//child's
+    //Won't work with out the operator in child
+
+}
+
+void testFakeReturn() {
+    auto noReturn = [] -> int {};
+    int count = 1;
+    for (int ind = 0; ind < 100; ind++) {
+        if (noReturn() != 0) {
+            printf("Non zero return: %d count: %d\n", noReturn(), count++);
+        } else
+//            printf("Zero returned\n");
+            usleep(10000);
+    }
+}
 
 int main() {
     initPlatform();
-//    testTcpMappedAddress();
 //    p2pBothTryToConnect(true);
 //    startHelloAndListen();
-    testStunReuseAddress();
 }
 
 #pragma clang diagnostic pop

@@ -11,7 +11,7 @@
 using namespace std;
 struct ResultItem {
     unsigned int id;
-    sockaddr_in addr;
+    sockaddr_storage addr;
 };
 
 class ConnectionFetcher {

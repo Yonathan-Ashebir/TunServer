@@ -65,7 +65,7 @@ void Handler::handleUpStream() {
             bool isHandled = false;
             TCPSession *closedConnection = nullptr;
 
-            for (auto con : connections) {
+            for (auto con: connections) {
                 if (con->getState() == TCPSession::CLOSED) {
                     if (closedConnection == nullptr)closedConnection = con;
                     continue;
@@ -78,7 +78,7 @@ void Handler::handleUpStream() {
             if (!isHandled) {
                 if (isSyn) {
                     if (closedConnection == nullptr) {
-                        auto con = new TCPSession(tunnel, maxFd, &rcv, &snd, &err);
+                        auto con = new TCPSession(tunnel, maxFd, rcv, snd, err);
                         connections.push_back(con);
                         con->receiveFromClient(packet);
                     } else closedConnection->receiveFromClient(packet);
@@ -92,7 +92,7 @@ void Handler::handleUpStream() {
 
         }
         //flush to server
-        for (auto con : connections) {
+        for (auto con: connections) {
             if (con->getState() == TCPSession::CLOSED)continue;
             con->flushDataToServer(packet);
         }
@@ -113,8 +113,9 @@ void Handler::handleDownStream() {
 
 #ifdef _WIN32
     //todo: find a better way to resolve windows can not select fd_set with zero sockets set
-    socket_t testSock = createTcpSocket(true);
-    FD_SET(testSock, &rcv);
+    TCPSocket testSock;
+    testSock.setReuseAddress(true);
+    testSock.setIn(rcv);
 #endif
 
 #ifdef LOGGING
@@ -138,13 +139,13 @@ void Handler::handleDownStream() {
         for (unsigned int ind = 0; ind < connections.size() && count > 0; ind++) {
             auto con = connections[ind];
             if (con->getState() == TCPSession::CLOSED)continue;
-            if (FD_ISSET(con->getFd(), &rcvCpy)) {
+            if (con->getSocket().isSetIn(rcv)) {
                 atleastOneHasSpace |= con->receiveFromServer(packet);
                 count--;
             }
         }
 
-        for (auto con : connections) {
+        for (auto con: connections) {
             if (con->getState() == TCPSession::CLOSED)continue;
             con->flushDataToClient(packet);
         }

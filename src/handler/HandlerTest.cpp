@@ -60,7 +60,7 @@ void handleSingleConnection() {
         tunnel.readPacket(packet);
     } while (!packet.isSyn());
     ::printf("First Syn received\n");
-    TCPSession connection(tunnel, maxFd, &readSet, &writeSet, &errorSet);
+    TCPSession connection(tunnel, maxFd, readSet, writeSet, errorSet);
     connection.receiveFromClient(packet);
 
     auto t1 = thread{[&tunnel, &connection] {
@@ -128,7 +128,7 @@ void handleDownload() {
     sockaddr_in server = firstSynPacket.getDestination();
     sockaddr_in client = firstSynPacket.getSource();
     inet_ntop(AF_INET, &(server.sin_addr.s_addr), ip, sizeof ip);
-    printf("Forwarding to %s:%d\n",  ip, ntohs(from.sin_port));
+    printf("Forwarding to %s:%d\n", ip, ntohs(from.sin_port));
     bool isOpen = true;
     unsigned retryCount = 0;
 
@@ -153,9 +153,8 @@ void handleDownload() {
 
     tunnel.writePacket(firstSynPacket);
 
-    socket_t sock = createTcpSocket();
-    auto res = connect(sock, reinterpret_cast<const sockaddr *>(&server), sizeof(server));
-    if (res != 0)exitWithError("Could not connect to server");
+    TCPSocket sock;
+    sock.connect(server);
 
     unsigned int fromClient{};
     unsigned int fromServer{};
@@ -166,7 +165,7 @@ void handleDownload() {
         char buf[3072];
         while (isOpen) {
             tunnel.readPacket(receivingPacket);
-            //No reset demanding or other cases are required here
+            //No regenerate demanding or other cases are required here
             if (receivingPacket.isFrom(client) && receivingPacket.isAck()) {
                 unsigned ack = receivingPacket.getAcknowledgmentNumber();
                 //Sending data directly
@@ -175,7 +174,7 @@ void handleDownload() {
                     receiveNext += len;
                     fromClient += len;
                     receivingPacket.copyDataTo(buf, sizeof buf);
-                    auto total = send(sock, buf, len, 0);
+                    auto total = sock.send(buf, len);
                     if (total != len)exitWithError("Could not send all data in the received packet");
                 }
 
@@ -192,7 +191,7 @@ void handleDownload() {
                                   receivingPacket.getSequenceNumber() + receivingPacket.getSegmentLength());
                 if (receivingPacket.isFin() && !clientReadFinished) {
                     clientReadFinished = true;
-                    shutdown(sock, SHUT_WR);
+                    sock.shutdownWrite();
                 }
                 if (clientReadFinished && serverReadFinished && sendUnacknowledged == sendNewData)isOpen = false;
             }
@@ -255,7 +254,7 @@ void handleDownload() {
             sendSequence += reusable;
         }
 
-        auto total = recv(sock, sendBuffer + sendNewData - sendSequence, available, 0);
+        auto total = sock.tryReceive(sendBuffer + sendNewData - sendSequence, available);
         if (total > 0) {
             sendNewData += total;
             fromServer += total;
@@ -294,7 +293,6 @@ void handleDownload() {
 
             join();
 
-    CLOSE(sock);
     CLOSE(tunnelFd);
 }
 
@@ -303,4 +301,5 @@ int main() {
     handleDownload();
     return 0;
 }
+
 #pragma clang diagnostic pop
