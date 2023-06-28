@@ -7,20 +7,21 @@
 #include "Include.h"
 #include "./packet/TCPPacket.h"
 #include "./tunnel/DatagramTunnel.h"
+#include "Test.h"
 
 using namespace std;
 
 #define ipAddr "127.0.0.1"
 
 void printSizeC() {
-    printf("Char size: %llu\n", sizeof(char));
+    printf("Char capacity: %llu\n", sizeof(char));
 }
 
 
 void sizeOfArrayAndElement() {
     char arr[30];
     typeof(arr + 1) el;
-    printf("Arr size: %lu and its element: %lu\n", sizeof(arr), sizeof(el));
+    printf("Arr capacity: %lu and its element: %lu\n", sizeof(arr), sizeof(el));
 }
 
 struct __attribute__((unused)) boolArray {
@@ -43,13 +44,15 @@ sockaddr_in _selectTestBindAddress;
 
 void selectTest() {
     TCPSocket listener;
-    _selectTestBindAddress = {AF_INET, 3333};
+    listener.setReuseAddress(true);
+    _selectTestBindAddress = {AF_INET, 33333};
     listener.bind(_selectTestBindAddress);
     listener.listen();
 
     pthread_t sendThread;
     pthread_create(&sendThread, nullptr, [](void *ptr) -> void * {
         TCPSocket sender;
+        inet_pton(AF_INET, "127.0.0.1", &_selectTestBindAddress.sin_addr);
         sender.connect(_selectTestBindAddress);
         const char message[] = "How long the country will last is uncertain"
                                "How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain""How long the country will last is uncertain";
@@ -66,6 +69,14 @@ void selectTest() {
         }
 #pragma clang diagnostic pop
     }, nullptr);
+
+    auto sock = listener.accept(_selectTestBindAddress);
+    char buf[1000];
+    while (true) {
+        int r = sock.receive(buf, sizeof buf);
+        cout << "Read bytes: " << r << endl;
+        usleep(1000000);
+    }
 }
 
 void mathRoofTest() {
@@ -314,7 +325,7 @@ void tunClientTest() {
 //        packet.makeNormal(100, 100);
 //        packet.setWindowSize(65535);
 //        packet.clearData();
-//        packet.appendData(reinterpret_cast<unsigned char *>(msg), 516);
+//        packet.setPayload(reinterpret_cast<unsigned char *>(msg), 516);
 //        tunnel.writePacket(packet);
 
         /*Memory allocation with flush test*/
@@ -555,7 +566,7 @@ void testTCPSocketRetryConnect() {
             auto err = WSAGetLastError();
             if (err == WSAECONNREFUSED || err == WSAETIMEDOUT)
 #else
-            if (errno == ECONNREFUSED || errno == ETIMEDOUT)
+                if (errno == ECONNREFUSED || errno == ETIMEDOUT)
 #endif
             {
                 if (chrono::steady_clock::now() - startTime > timeout) {
@@ -581,12 +592,12 @@ void testPreProcessor() {
     ::printf("Result of add %d\n", add(add(add(1, 1), 1), 1));
 }
 
-void testTcpMappedAddress() {
+void testTCPMappedAddress() {
     sockaddr_storage bindAddr{AF_INET};
-    reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port = htons(12421);
-    auto address = getTCPMappedAddress(bindAddr);
+    reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port = htons(11421);
+    auto address = getTCPPublicAddress(bindAddr);
 //    usleep(500000);
-//    address = getTCPMappedAddress(bindAddr);
+//    address = getTCPPublicAddress(bindAddr);
 
     char addr[100];
     unsigned short port = ntohs((address->ss_family == AF_INET)
@@ -598,6 +609,25 @@ void testTcpMappedAddress() {
               addr, sizeof addr);
     ::printf("Mapped tcp address = %s:%d\n", addr, port);
 }
+
+void testUDPMappedAddress() {
+    sockaddr_storage bindAddr{AF_INET};
+    reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port = htons(12421);
+    auto address = getUDPPublicAddress(bindAddr);
+//    usleep(500000);
+//    address = getTCPPublicAddress(bindAddr);
+
+    char addr[100];
+    unsigned short port = ntohs((address->ss_family == AF_INET)
+                                ? reinterpret_cast<sockaddr_in *>(address.get())->sin_port
+                                : reinterpret_cast<sockaddr_in6 *>(address.get())->sin6_port);
+    inet_ntop(address->ss_family,
+              (address->ss_family == AF_INET) ? (void *) &reinterpret_cast<sockaddr_in *>(address.get())->sin_addr
+                                              : (void *) &reinterpret_cast<sockaddr_in6 *>(address.get())->sin6_addr,
+              addr, sizeof addr);
+    ::printf("Mapped udp address = %s:%d\n", addr, port);
+}
+
 
 namespace other_blah {
     const char *blah_str2 = "other blah";
@@ -717,8 +747,8 @@ void p2pBothTryToConnect(bool random = false) {
     sock1.bind(bindAddress1);
     sock2.bind(bindAddress2);
 
-    auto mp1 = getTCPMappedAddress(sock1);
-    auto mp2 = getTCPMappedAddress(sock2);
+    auto mp1 = getTCPPublicAddress(sock1);
+    auto mp2 = getTCPPublicAddress(sock2);
     socklen_t len = sizeof bindAddress1;
     sock1.getBindAddress(bindAddress1);
     sock2.getBindAddress(bindAddress2);
@@ -759,13 +789,13 @@ void stunIndicate(socket_t sock) {
 
 void testStunReuseSocket() {
     TCPSocket sock;
-    auto mp1 = getTCPMappedAddress(sock);
+    auto mp1 = getTCPPublicAddress(sock);
 //    while(true){
 //        stunIndicate(sock);
 //        usleep(1);
 //    }
 
-    auto mp2 = getTCPMappedAddress(sock, true);
+    auto mp2 = getTCPPublicAddress(sock, true);
 }
 
 void testStunReuseAddress() {
@@ -777,14 +807,14 @@ void testStunReuseAddress() {
     for (int count = 0; count < 20; count++) {
         unique_ptr<sockaddr_storage> mp;
         if (count % 2 == 1) {
-            mp = getTCPMappedAddress(bindAddress);
+            mp = getTCPPublicAddress(bindAddress);
         } else {
             TCPSocket sock;
             sock.setLinger(ln);
             sock.bind(bindAddress);
             sock.connect(otherStunAddr);
             throw BadException("Could not connect to the other stun server");
-            mp = getTCPMappedAddress(sock, true);
+            mp = getTCPPublicAddress(sock, true);
         }
 
         printf("Resolved public address of %s, trier %d\n", getAddressString(*mp).c_str(), count + 1);
@@ -850,6 +880,10 @@ class Parent {
 public:
     Parent() {};
 
+    virtual ~Parent() {
+        printf("Parent's descructor was called\n");
+    }
+
     Parent(Parent &p) {
         cout << "Parent copy constructor called" << endl;
 
@@ -867,6 +901,10 @@ public:
     virtual Parent &operator=(Parent &&) {
         cout << "Parent move called" << endl;
     }
+
+    virtual void method() {
+        cout << "Parent's method called" << endl;
+    }
 };
 
 class Child : public Parent {
@@ -874,12 +912,30 @@ class Child : public Parent {
 public:
     explicit Child() : Parent() {};
 
+    ~Child() override {
+        printf("Child's descructor was called\n");
+    }
+
     virtual Child &operator=(Child &) {
         cout << "Child copy called" << endl;
     }
 
     virtual Child &operator=(Child &&) {
         cout << "Child move called" << endl;
+    }
+
+    void method() {
+        cout << "Child's method called" << endl;
+    }
+};
+
+class GrandChild : public Child {
+    ~GrandChild() {
+        printf("Grand child's destructor was called\n");
+    }
+
+    void method() {
+        cout << "Grand child's method called" << endl;
     }
 };
 
@@ -901,7 +957,14 @@ void testInheritanceOfCopyMoveOperators() {
     p1 = c1;//call parent's
     c3 = move(c1);//child's
     //Won't work with out the operator in child
+}
 
+void testDestructor() {
+//    Child ch; //calls all descturctors, no virtual needed
+
+    Parent *p = new GrandChild; //calls all, virtual needed
+    p->method(); // calls the grand chlild's method, no need to explicitly mark child's method viertual
+    delete p;
 }
 
 void testFakeReturn() {
@@ -916,11 +979,114 @@ void testFakeReturn() {
     }
 }
 
+struct VariableBufferStruct {
+    static int size;
+//    char buffer[capacity];//Won't work unless (contexpr / const) static
+};
+
+void emptyArrayPointerTest() {
+    char *buf = new char[0];
+    char *buf2 = new char[0];
+    printf("Ptr1 0x%lX\n", buf);
+    printf("Ptr2 0x%lX\n", buf2);
+    delete buf;
+    delete (buf2);
+    cout << "After" << endl;
+}
+
+void testPrintAddress() {
+    printf("Ptr1 0x%lX\n", printf);
+    printf("Ptr1 0x%lX\n", &printf);
+//    sleep(100);
+}
+
+struct CompressedTCPH {
+    unsigned short sourcePort{};
+    unsigned short destinationPort{};
+    unsigned int sequenceNumber{};
+    unsigned int acknowledgementNumber{};
+    char cwr: 1{};
+    char ece: 1{};
+    char urg: 1{};
+    char ack: 1{};
+    char psh: 1{};
+    char rst: 1{};
+    char syn: 1{};
+    char fin: 1{};
+    unsigned short window{};
+};
+
+/*Bit order consideration of wire shark, clion and the system are the same, but according to tcp documentation and the fact that fin is set at the last bit in wireshark similarily, thus structs in my linux system are reverse ordered, and the system's byte order is similar to the networks*/
+void testBitFields() {
+    int a = 1;
+    CompressedTCPH header{1, 2, 3, 4, 1, 1, 1, 1, 0, 0, 0, 0, 5};
+    tcphdr header2{};
+    header2.fin = 1;
+    printf("Size of header struct: %d\n", sizeof header);
+    TCPSocket sock;
+    sock.connect("1.1.1.1", 80);
+    sock.sendObject(header2);
+}
+
+extern void testInlineVirtual2();
+
+void testInlineVirtual() {
+    InlineVirtualChild ch;
+    InlineVirtualParent *chPtr = &ch;
+    ch.fun1();
+}
+
+void InlineVirtualParent::fun1() { cout << "Parent's called" << endl; }
+
+void InlineVirtualChild::fun1() { cout << "Child's called" << endl; }
+
+void testReadBuffer() {
+    char str[80], ch;
+
+    // scan input from user -
+    // GeeksforGeeks for example
+    scanf("%s", str);
+
+    scanf("%s", str);
+    cout << str << endl;
+    // flushes the standard input
+    // (clears the input buffer)
+    char c;
+    while ((c = getchar()) != '\n') { printf("Char code in loop %d\n", c); };
+
+    // scan character from user -
+    // 'a' for example
+    ch = getchar();
+
+    // Printing character array,
+    // prints “GeeksforGeeks”)
+    printf("%s\n", str);
+
+    // Printing character a: It
+    // will print 'a' this time
+    printf("%c", ch);
+}
+
+template<class T>
+void testTypeComparitionHelper() {
+    printf("Result: %d\n", typeid(T) == typeid(char));
+}
+
+void testTypeComparition() {
+    testTypeComparitionHelper<char>();
+    typedef char blah;
+    testTypeComparitionHelper<blah>();
+    struct blah2 {
+        char a1: 1;
+    };
+    testTypeComparitionHelper<blah2>();
+}
+
 int main() {
+
     initPlatform();
-    testTcpMappedAddress();
-//    p2pBothTryToConnect(true);
-//    startHelloAndListen();
+
+    testTypeComparition();
 }
 
 #pragma clang diagnostic pop

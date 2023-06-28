@@ -31,8 +31,6 @@ void test1() {
 
     fetcher.setBindAddress(bindAddr);
     fetcher.start("http://yoniash.000webhostapp.com/server.php");//yoni-ash.000webhostapp.com
-
-
 };
 
 int main() {

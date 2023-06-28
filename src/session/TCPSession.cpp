@@ -17,7 +17,7 @@ TCPSession::TCPSession(Tunnel &tunnel, socket_t &maxFd, fd_set &rcv, fd_set &snd
 TCPSession::~TCPSession() {
     delete sendBuffer;
 #ifdef LOGGING
-    ::printf("Connection destroyed");
+    ::printf("TCP session destroyed");
 #endif
 }
 
@@ -129,7 +129,7 @@ void TCPSession::receiveFromClient(TCPPacket &packet) {
                 unsigned int seq = packet.getSequenceNumber();
                 if (seq >= receiveNext &&
                     seq < receiveNext + (getReceiveAvailable()))
-                    closeConnection();
+                    closeSession();
             }
         }
 
@@ -148,7 +148,7 @@ void TCPSession::receiveFromClient(TCPPacket &packet) {
                         }
                         sendSequence = sendUnacknowledged = sendNewDataSequence = sendNext = ack;
                         auto now = chrono::steady_clock::now();
-                        rtt = min(now - lastSendTime, MAX_RTT);
+                        rtt = max(min(now - lastSendTime, MAX_RTT), chrono::nanoseconds(0));//todo: improve
                         lastTimeAcknowledgmentAccepted = now;
                         mSock.setIn(receiveSet);
                         maxFd = max(maxFd, mSock.getFD() + 1);
@@ -223,7 +223,7 @@ void TCPSession::receiveFromClient(TCPPacket &packet) {
                         else ::printf("Accepted simple data ack\n");
 #endif
                         //Both might be complete now
-                        if (isUpStreamComplete() && isDownStreamComplete())closeConnection();
+                        if (isUpStreamComplete() && isDownStreamComplete())closeSession();
                         else {
                             //If they are not complete
                             acknowledgeDelayed(packet);
@@ -250,7 +250,7 @@ bool TCPSession::receiveFromServer(TCPPacket &packet) {
     auto amt = getSendAvailable();
     if (amt == 0)return false;
     int total = mSock.tryReceive(sendBuffer + sendNewDataSequence - sendSequence, (int) amt);//warn:not logically safe
-    if (total != -1) {
+    if (total != -1 && total != 0) {
         //Advance next read point
         sendNewDataSequence += total;
 #ifdef LOGGING
@@ -275,14 +275,15 @@ bool TCPSession::receiveFromServer(TCPPacket &packet) {
 }
 
 
-//Info: flush calls often should trim buffers, close the session (or parts of it), handle data never flushed to node case (e.g. by using RESET packets);
+//Info: flush calls often should trim buffers, close the session (or parts of it),
+// handle data never flushed to node cases (e.g., by using RESET packets);
 void TCPSession::flushDataToServer(TCPPacket &packet) {
     if (state != ESTABLISHED)return;
 
     if (isUpStreamComplete())return;
     if (clientReadFinished && receiveUser == receiveNext - 1) {
         receiveUser++;
-        if (isDownStreamComplete())closeConnection();
+        if (isDownStreamComplete())closeSession();
         else mSock.shutdownWrite();
     } else {
         auto amt = receiveNext - receiveUser - (clientReadFinished ? 1 : 0);
@@ -291,14 +292,14 @@ void TCPSession::flushDataToServer(TCPPacket &packet) {
             int total = mSock.send(receiveBuffer + receiveUser - receiveSequence, (int) amt);
 
 #ifdef  LOGGING
-            ::printf("Flushed %zu bytes to server\n", total);
+            ::printf("Flushed %d bytes to server\n", total);
 #endif
 //            if (receivePushSequence > receiveUser)mSock.enableNagle(true);
             if (total != -1) {
                 receiveUser += total;
                 if (clientReadFinished && receiveUser == receiveNext - 1) {
                     receiveUser++;
-                    if (isDownStreamComplete())closeConnection();
+                    if (isDownStreamComplete())closeSession();
                     else mSock.shutdownWrite();
                 } else if (!clientReadFinished)
                     trimReceiveBuffer();
@@ -314,7 +315,7 @@ void TCPSession::flushDataToServer(TCPPacket &packet) {
 #ifdef LOGGING
                 ::printf("Failed to flush it all to the server. So, sent regenerate\n");
 #endif
-                closeConnection();
+                closeSession();
             }
         }
     }
@@ -354,9 +355,9 @@ void TCPSession::flushDataToClient(TCPPacket &packet) {
     };
 
     //todo: this seems to inefficiently send new data that did not accumulate to mss
-    if (sendUnacknowledged < sendNewDataSequence && diff.count() / 4 > rtt.count()) {
+    if (sendUnacknowledged < sendNewDataSequence && diff / 4 > rtt) {
         if (retryCount == SEND_MAX_RETRIES) {
-            closeConnection();
+            closeSession();
             return;
         }
         if (sendUnacknowledged < sendNext)retryCount++;
@@ -380,7 +381,7 @@ void TCPSession::flushDataToClient(TCPPacket &packet) {
 
 
     if (isUpStreamComplete())
-        closeConnection();
+        closeSession();
 //    acknowledgeDelayed(packet);
 }
 

@@ -14,7 +14,7 @@ Socket::Socket(int domain, int type, int proto) : Socket(socket(domain, type, pr
 }
 
 Socket::~Socket() {
-    if (data != nullptr) {
+    if (data) {
         if (--data->count == 0) {
             CLOSE(data->socket);
             delete data;
@@ -28,8 +28,8 @@ Socket::Socket(Socket &&old) noexcept {
 }
 
 Socket &Socket::operator=(const Socket &old) {
-    if (&old != this) {
-        if (data != nullptr && --data->count == 0) {
+    if (old.data != data) {
+        if (data && --data->count == 0) {
             CLOSE(data->socket);
             delete data;
         }
@@ -46,8 +46,8 @@ Socket::Socket(const Socket &old) {
 }
 
 Socket &Socket::operator=(Socket &&old) noexcept {
-    if (&old != this) {
-        if (data != nullptr && --data->count == 0) {
+    if (data != old.data) {
+        if (data && --data->count == 0) {
             CLOSE(data->socket);
             delete data;
         }
@@ -132,8 +132,8 @@ InetSocket::InetSocket(int type, bool ipv6) : Socket(ipv6 ? AF_INET6 : AF_INET, 
 
 void InetSocket::setBlocking(bool isBlocking) {
 #ifdef  _WIN32
-    if (ioctlsocket(data->socket, FIONBIO, isBlocking ? 0 :(char *) &INT_ONE) == -1)
-            throw SocketException("Could not set non blocking flag on socket");
+    if (ioctlsocket(data->socket, FIONBIO, isBlocking ? 0 : (unsigned long *) &ULONG_ONE) == -1)
+        throw SocketException("Could not set non blocking flag on socket");
 #else
     if (isBlocking) {
         auto flags = fcntl(data->socket, F_GETFL);
@@ -217,7 +217,7 @@ int InetSocket::tryReceive(void *buf, int len, int options) {
 
 int InetSocket::receive(void *buf, int len, int options) {
     int total;
-    if ((total = tryReceive(buf, len, options)) == -1)throw SocketException("Could not send");
+    if ((total = tryReceive(buf, len, options)) == -1)throw SocketException("Could not receive");
     return total;
 }
 
@@ -252,7 +252,7 @@ int InetSocket::sendIgnoreWouldBlock(const void *buf, int len, int options) {
 
 int InetSocket::receiveIgnoreWouldBlock(void *buf, int len, int options) {
     int total;
-    if ((total = tryReceive(buf, len, options)) == -1 && !isWouldBlock())throw SocketException("Could not send");
+    if ((total = tryReceive(buf, len, options)) == -1 && !isWouldBlock())throw SocketException("Could not receive");
     return total;
 }
 
@@ -282,7 +282,7 @@ int InetSocket::sendObject(Buffer &buf, int options) {
 }
 
 template<class Buffer>
-int InetSocket::trySendObject(Buffer& buf, int options) {
+int InetSocket::trySendObject(Buffer &buf, int options) {
     return trySend(&buf, sizeof buf, options);
 }
 
@@ -300,7 +300,7 @@ void Socket::shutdownRead() {
     shutdown(data->socket, SHUT_RD);
 }
 
-Socket::Socket(int sock, int domain, int type, int proto) {
+Socket::Socket(socket_t sock, int domain, int type, int proto) {
     if (sock == -1)throw SocketException("Could not create a socket");
     data->socket = sock;
     data->domain = domain;
@@ -410,10 +410,16 @@ void UDPSocket::setUDPOption(int option, void *val, int len) {
 UDPSocket::UDPSocket(bool ipv6) : InetSocket(SOCK_DGRAM, ipv6) {
 }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "cppcoreguidelines-narrowing-conversions"
+
 int UDPSocket::tryReceiveFrom(void *buf, int len, void *addr, socklen_t &addrLen, int options) {
-    return ::recvfrom(data->socket, (char *) buf, len, options, reinterpret_cast<sockaddr *>(addr),
-                      &addrLen); // NOLINT(cppcoreguidelines-narrowing-conversions)
+    return ::recvfrom(data->socket, (char *) buf, len, options,
+                      reinterpret_cast<sockaddr *>(addr),
+                      &addrLen);
 }
+
+#pragma clang diagnostic pop
 
 int UDPSocket::receiveFrom(void *buf, int len, void *addr, socklen_t &addrLen, int options) {
     auto total = tryReceiveFrom(buf, len, addr, addrLen, options);
@@ -421,15 +427,66 @@ int UDPSocket::receiveFrom(void *buf, int len, void *addr, socklen_t &addrLen, i
     return total;
 }
 
+#pragma clang diagnostic push
+#pragma ide diagnostic ignored "cppcoreguidelines-narrowing-conversions"
+
 int UDPSocket::trySendTo(void *buf, int len, void *addr, socklen_t addrLen, int options) {
-    return ::sendto(data->socket, buf, len, options, reinterpret_cast<sockaddr *>(addr),
-                    addrLen); // NOLINT(cppcoreguidelines-narrowing-conversions)
+    return ::sendto(data->socket, (char *) buf, len, options,
+                    reinterpret_cast<sockaddr *>(addr),
+                    addrLen);
 }
+
+#pragma clang diagnostic pop
 
 int UDPSocket::sendTo(void *buf, int len, void *addr, socklen_t addrLen, int options) {
     auto sent = trySendTo(buf, len, addr, addrLen, options);
     if (sent == -1)throw SocketException("Send to failed");
     return sent;
+}
+
+int UDPSocket::sendToIgnoreWouldBlock(void *buf, int len, void *addr, socklen_t addrLen, int options) {
+    auto sent = trySendTo(buf, len, addr, addrLen, options);
+    if (sent == -1)throw SocketException("Send to failed");
+    return sent;
+}
+
+int UDPSocket::receiveFromIgnoreWouldBlock(void *buf, int len, void *addr, socklen_t &addrLen, int options) {
+    auto total = tryReceiveFrom(buf, len, addr, addrLen, options);
+    if (total == -1 && !isWouldBlock())throw SocketException("Receive from failed");
+    return total;
+}
+
+template<typename Addr>
+int UDPSocket::receiveFromIgnoreWouldBlock(void *buf, int len, Addr &addr, int options) {
+    socklen_t addrLen = sizeof addr;
+    auto total = receiveFromIgnoreWouldBlock(buf, len, &addr, addrLen, options);
+    if (addrLen > sizeof addr)throw length_error("Peer address trimmed in receive from");
+    return total;
+}
+
+template<typename Buffer>
+int UDPSocket::receiveObjectFromIgnoreWouldBlock(Buffer &buf, void *addr, socklen_t &addrLen, int options) {
+    return receiveFromIgnoreWouldBlock(&buf, sizeof buf, addr, addrLen, options);
+}
+
+template<typename Buffer, typename Addr>
+int UDPSocket::receiveObjectFromIgnoreWouldBlock(Buffer &buf, Addr &addr, int options) {
+    return receiveFromIgnoreWouldBlock(&buf, sizeof buf, addr, options);
+}
+
+template<typename Addr>
+int UDPSocket::sendToIgnoreWouldBlock(void *buf, int len, Addr &addr, int options) {
+    return sendToIgnoreWouldBlock(buf, len, &addr, sizeof addr, options);
+}
+
+template<typename Buffer>
+int UDPSocket::sendObjectToIgnoreWouldBlock(Buffer &buf, void *addr, socklen_t addrLen, int options) {
+    return sendToIgnoreWouldBlock(&buf, sizeof buf, addr, addrLen, options);
+}
+
+template<typename Buffer, typename Addr>
+int UDPSocket::sendObjectToIgnoreWouldBlock(Buffer &buf, Addr &addr, int options) {
+    return sendToIgnoreWouldBlock(&buf, sizeof buf, addr, options);
 }
 
 template<typename Buffer>
@@ -444,7 +501,7 @@ int UDPSocket::receiveObjectFrom(Buffer &buf, void *addr, socklen_t &addrLen, in
 
 template<typename Buffer, typename Addr>
 int UDPSocket::receiveObjectFrom(Buffer &buf, Addr &addr, int options) {
-    return tryReceiveFrom(&buf, sizeof buf, &addr, sizeof addr, options);
+    return receiveFrom(&buf, sizeof buf, addr, options);
 }
 
 template<typename Buffer>
@@ -459,7 +516,7 @@ int UDPSocket::sendObjectTo(Buffer &buf, void *addr, socklen_t addrLen, int opti
 
 template<typename Buffer, typename Addr>
 int UDPSocket::sendObjectTo(Buffer &buf, Addr &addr, int options) {
-    return trySendTo(&buf, sizeof buf, addr, sizeof addr, options);
+    return trySendTo(&buf, sizeof buf, addr, options);
 }
 
 template<typename Addr>

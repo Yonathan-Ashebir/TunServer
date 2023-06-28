@@ -29,7 +29,7 @@ protected:
 bool DatagramTunnel::writePacket(IPPacket &packet) {
     packet.validate();
     auto buffer = getDataBuffer(packet);
-    auto sock = getDatagramSocket();
+    auto &sock = getDatagramSocket();
     auto res = sock.sendIgnoreWouldBlock(buffer, packet.getLength());
     return res == packet.getLength();
 }
@@ -37,12 +37,11 @@ bool DatagramTunnel::writePacket(IPPacket &packet) {
 bool DatagramTunnel::readPacket(IPPacket &packet) {
     auto len = packet.getMaxSize();
     auto buffer = getDataBuffer(packet);
-    auto sock = getDatagramSocket();
+    auto& sock = getDatagramSocket();
     auto total = sock.receiveIgnoreWouldBlock(buffer, len); // NOLINT(cppcoreguidelines-narrowing-conversions)
     packet.syncWithBuffer();
     if (total == len) { printError("Might have dropped something"); }
-    if (!packet.isValid()) return false;
-    else return true;
+    return packet.isValid();
 }
 
 #pragma clang diagnostic pop

@@ -11,8 +11,10 @@
 #include <winsock2.h>
 #include <ws2tcpip.h>
 #else
+
 #include <netinet/in.h>
 #include <arpa/inet.h>
+
 #endif
 
 struct iphdr {
@@ -132,7 +134,7 @@ void create_syn_packet(struct sockaddr_in *src, struct sockaddr_in *dst, char **
     tcph->dest = dst->sin_port;
     tcph->seq = htonl(rand() % 4294967295);
     tcph->ack_seq = htonl(0);
-    tcph->doff = 10; // tcp header size
+    tcph->doff = 10; // tcp header capacity
     tcph->fin = 0;
     tcph->syn = 1;
     tcph->rst = 0;
@@ -140,7 +142,7 @@ void create_syn_packet(struct sockaddr_in *src, struct sockaddr_in *dst, char **
     tcph->ack = 0;
     tcph->urg = 0;
     tcph->check = 0; // correct calculation follows later
-    tcph->window = htons(5840); // window size: large one seen = 64240
+    tcph->window = htons(5840); // window capacity: large one seen = 64240
     tcph->urg_ptr = 0;
 
     // TCP pseudo header for checksum calculation
@@ -174,7 +176,7 @@ void create_syn_packet(struct sockaddr_in *src, struct sockaddr_in *dst, char **
     memcpy(datagram + optionsOffset + 12, &t2, sizeof t);
     //No-Operation
     datagram[optionsOffset + 16] = 1;
-    //Window scale
+    //Window windowShift
     datagram[optionsOffset + 17] = 3;
     datagram[optionsOffset + 18] = 3;
     datagram[optionsOffset + 19] = 7;*/
@@ -220,7 +222,7 @@ create_ack_packet(struct sockaddr_in *src, struct sockaddr_in *dst, int seq, int
     tcph->dest = dst->sin_port;
     tcph->seq = htonl(seq);
     tcph->ack_seq = htonl(ack_seq);
-    tcph->doff = 10; // tcp header size
+    tcph->doff = 10; // tcp header capacity
     tcph->fin = 0;
     tcph->syn = 0;
     tcph->rst = 0;
@@ -228,7 +230,7 @@ create_ack_packet(struct sockaddr_in *src, struct sockaddr_in *dst, int seq, int
     tcph->ack = 1;
     tcph->urg = 0;
     tcph->check = 0; // correct calculation follows later
-    tcph->window = htons(5840); // window size
+    tcph->window = htons(5840); // window capacity
     tcph->urg_ptr = 0;
 
     // TCP pseudo header for checksum calculation
@@ -283,7 +285,7 @@ void create_data_packet(struct sockaddr_in *src, struct sockaddr_in *dst, int se
     tcph->dest = dst->sin_port;
     tcph->seq = htonl(seq);
     tcph->ack_seq = htonl(ack_seq);
-    tcph->doff = 10; // tcp header size
+    tcph->doff = 10; // tcp header capacity
     tcph->fin = 0;
     tcph->syn = 0;
     tcph->rst = 0;
@@ -291,7 +293,7 @@ void create_data_packet(struct sockaddr_in *src, struct sockaddr_in *dst, int se
     tcph->ack = 1;
     tcph->urg = 0;
     tcph->check = 0; // correct calculation follows later
-    tcph->window = htons(5840); // window size
+    tcph->window = htons(5840); // window capacity
     tcph->urg_ptr = 0;
 
     // TCP pseudo header for checksum calculation

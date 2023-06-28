@@ -230,7 +230,7 @@ void TCPPacket::setWindowSize(unsigned short window) {
 }
 
 void TCPPacket::setWindowScale(unsigned char shift) {
-    if (shift > 14)throw invalid_argument("Invalid window scale shift: " + to_string(shift));
+    if (shift > 14)throw invalid_argument("Invalid window windowShift shift: " + to_string(shift));
     setOption(3, 3, &shift);
 }
 
@@ -242,14 +242,14 @@ void TCPPacket::setMSS(unsigned short size) {
 sockaddr_in TCPPacket::getSource() {//warn: skipped memset to zero
     auto tcph = getTcpHeader();
     auto iph = getIpHeader();
-    sockaddr_in addr{AF_INET, tcph->source, *(in_addr*)&iph->saddr};
+    sockaddr_in addr{AF_INET, tcph->source, *(in_addr *) &iph->saddr};
     return addr;
 }
 
 sockaddr_in TCPPacket::getDestination() {//warn: skipped memset to zero
     auto tcph = getTcpHeader();
     auto iph = getIpHeader();
-    sockaddr_in addr{AF_INET, tcph->dest, *(in_addr*)&iph->daddr};
+    sockaddr_in addr{AF_INET, tcph->dest, *(in_addr *) &iph->daddr};
     return addr;
 }
 
@@ -326,7 +326,7 @@ unsigned char TCPPacket::getWindowShift() {
     unsigned char data;
     unsigned char len = getOption(3, &data, 1);
     if (len == 0)return 0;
-    if (len != 3)throw invalid_argument("Invalid window scale length encountered: " + to_string(len));
+    if (len != 3)throw invalid_argument("Invalid window windowShift tol encountered: " + to_string(len));
     return data;
 }
 

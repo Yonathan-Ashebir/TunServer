@@ -70,13 +70,13 @@ inline bool isConnectionInProgress(int err =
 #ifdef _WIN32
 WSAGetLastError()
 #else
-errno
+        errno
 #endif
 ) {
 
 #ifdef _WIN32
-    return (err == 0 || err == WSAEWOULDBLOCK || err == WSAEINPROGRESS ||
-         err == WSAEALREADY;
+    return err == 0 || err == WSAEWOULDBLOCK || err == WSAEINPROGRESS ||
+           err == WSAEALREADY;
 #else
     return err == 0 || err == EAGAIN || err == EINPROGRESS || err == EALREADY;
 #endif
@@ -86,7 +86,7 @@ inline bool isWouldBlock(int err =
 #ifdef _WIN32
 WSAGetLastError()
 #else
-errno
+        errno
 #endif
 ) {
 #ifdef _WIN32
@@ -116,7 +116,7 @@ inline bool isCouldNotConnectBadNetwork(int err =
 #ifdef _WIN32
 WSAGetLastError()
 #else
-errno
+        errno
 #endif
 ) {
 #ifdef _WIN32

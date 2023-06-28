@@ -52,7 +52,7 @@ void test() {
 //    *(unsigned int *) &stunData[4] = htonl(0x2112A442);
 
     sock.send(request.data(), request.size(), 0);
-    ::printf("Sent request of size: %zu\n", request.size());
+    ::printf("Sent request of capacity: %zu\n", request.size());
 
     stun::message response{};
 

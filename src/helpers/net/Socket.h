@@ -165,9 +165,6 @@ public:
 };
 
 
-class Inet6Socket : public Socket {
-};
-
 class TCPSocket : public InetSocket {
 public:
     inline explicit TCPSocket(bool ipv6 = false);
@@ -219,14 +216,25 @@ public:
 
     inline int receiveFrom(void *buf, int len, void *addr, socklen_t &addrLen, int options = 0);
 
-    template<typename Buffer>
-    inline int receiveObjectFrom(Buffer &buf, void *addr, socklen_t &addrLen, int options = 0);
-
     template<typename Addr>
     inline int receiveFrom(void *buf, int len, Addr &addr, int options = 0);
 
+    template<typename Buffer>
+    inline int receiveObjectFrom(Buffer &buf, void *addr, socklen_t &addrLen, int options = 0);
+
     template<typename Buffer, typename Addr>
     inline int receiveObjectFrom(Buffer &buf, Addr &addr, int options = 0);
+
+    inline int receiveFromIgnoreWouldBlock(void *buf, int len, void *addr, socklen_t &addrLen, int options = 0);;
+
+    template<typename Addr>
+    inline int receiveFromIgnoreWouldBlock(void *buf, int len, Addr &addr, int options = 0);
+
+    template<typename Buffer>
+    inline int receiveObjectFromIgnoreWouldBlock(Buffer &buf, void *addr, socklen_t &addrLen, int options = 0);
+
+    template<typename Buffer, typename Addr>
+    inline int receiveObjectFromIgnoreWouldBlock(Buffer &buf, Addr &addr, int options = 0);
 
     inline int trySendTo(void *buf, int len, void *addr, socklen_t addrLen, int options = 0);
 
@@ -235,14 +243,25 @@ public:
 
     inline int sendTo(void *buf, int len, void *addr, socklen_t addrLen, int options = 0);
 
-    template<typename Buffer>
-    inline int sendObjectTo(Buffer &buf, void *addr, socklen_t addrLen, int options = 0);
-
     template<typename Addr>
     inline int sendTo(void *buf, int len, Addr &addr, int options = 0);
 
+    template<typename Buffer>
+    inline int sendObjectTo(Buffer &buf, void *addr, socklen_t addrLen, int options = 0);
+
     template<typename Buffer, typename Addr>
     inline int sendObjectTo(Buffer &buf, Addr &addr, int options = 0);
+
+    inline int sendToIgnoreWouldBlock(void *buf, int len, void *addr, socklen_t addrLen, int options = 0);
+
+    template<typename Addr>
+    inline int sendToIgnoreWouldBlock(void *buf, int len, Addr &addr, int options = 0);
+
+    template<typename Buffer>
+    inline int sendObjectToIgnoreWouldBlock(Buffer &buf, void *addr, socklen_t addrLen, int options = 0);
+
+    template<typename Buffer, typename Addr>
+    inline int sendObjectToIgnoreWouldBlock(Buffer &buf, Addr &addr, int options = 0);
 };
 
 #include "SocketImp.h"

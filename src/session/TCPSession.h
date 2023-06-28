@@ -71,8 +71,8 @@ private:
 
     unsigned short mss{};
     char *sendBuffer{}; //buffer to send data to a client
-    unsigned int sendLength{}; //size of buffer
-    unsigned int sendWindow{}; // max size of data for next segment
+    unsigned int sendLength{}; //capacity of buffer
+    unsigned int sendWindow{}; // max capacity of data for next segment
     unsigned char windowShift{};
     unsigned int sendSequence{};
     unsigned int sendUnacknowledged{}; //the sequence number of next octet/data to send to the client
@@ -96,7 +96,7 @@ private:
     fd_set &sendSet;
     fd_set &errorSet;
 
-    inline void closeConnection();
+    inline void closeSession();
 
     inline unsigned int getReceiveAvailable() const;
 
@@ -119,13 +119,16 @@ TCPSession::states TCPSession::getState() {
     return state;
 }
 
-void TCPSession::closeConnection() {
+void TCPSession::closeSession() {
     //todo: might affect opposite stream
     mSock.unsetFrom(receiveSet);
     mSock.unsetFrom(sendSet);
     mSock.unsetFrom(errorSet);
     mSock.close();
     state = CLOSED;
+#ifdef LOGGING
+    printf("TCP session closed\n");
+#endif
 }
 
 unsigned int TCPSession::getReceiveAvailable() const {

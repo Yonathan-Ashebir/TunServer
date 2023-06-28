@@ -36,15 +36,9 @@ void Handler::handleUpStream() {
         int count = select(maxFdTunnel, &copy, nullptr, nullptr, // NOLINT(cppcoreguidelines-narrowing-conversions)
                            &tvCpy); // NOLINT(cppcoreguidelines-narrowing-conversions)
 
-#ifdef _WIN32
-        if (count == SOCKET_ERROR) {
-            exitWithError("Could not use select on tunnel's file descriptor", WSAGetLastError());
-        }
-#else
-        if (count == -1)exitWithError("Could not use select on tunnel's file descriptor");
-#endif
+        if (count == -1)throw SocketException("Could not use select on tunnel's file descriptor");
 
-        if (count && tunnel.readPacket(packet)) {
+        if (count > 0 && tunnel.readPacket(packet)) {
             char srcIp[INET_ADDRSTRLEN];
             char destIp[INET_ADDRSTRLEN];
 

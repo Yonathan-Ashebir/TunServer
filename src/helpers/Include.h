@@ -33,9 +33,10 @@
 
 //#define STRICT_MODE
 #define LOGGING
-#define random rand
+#define laterinit
+#define random() ::rand()
 const int INT_ONE = 1;
-const int ULONG_ONE = 1ul;
+const auto ULONG_ONE = 1ul;
 const long long ZERO = 0;
 #define GeneralException(msg) std::system_error(errno,system_category(),msg)
 
@@ -51,6 +52,7 @@ const long long ZERO = 0;
 #define socket_t SOCKET
 #define SHUT_WR SD_SEND
 #define SHUT_RD SD_RECEIVE
+#define sa_family_t short
 
 struct iphdr {
 #if __BYTE_ORDER == __LITTLE_ENDIAN

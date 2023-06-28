@@ -11,13 +11,19 @@
 
 class Tunnel {
 public:
-    inline explicit Tunnel(Socket& fd) : sock(fd) {}
+    inline explicit Tunnel(Socket &fd) : sock(fd) {}
 
     virtual bool writePacket(IPPacket &packet) = 0;
 
     virtual bool readPacket(IPPacket &packet) = 0;
 
     inline Socket getSocket() const { return sock; }
+
+    ~Tunnel() {
+#ifdef LOGGING
+        printf("Tunnel's destructor called\n");
+#endif
+    }
 
 
 protected:

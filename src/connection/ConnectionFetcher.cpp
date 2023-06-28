@@ -80,7 +80,7 @@ void ConnectionFetcher::fetchConnections(const string &url) {
     char buf[100];
 
     auto updateAddress = [&, this] {
-        auto publicAddress = getTCPMappedAddress(bindAddr);
+        auto publicAddress = getTCPPublicAddress(bindAddr);
         if (inet_ntop(publicAddress->ss_family, (publicAddress->ss_family == AF_INET)
                                                 ? (void *) &(reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_addr)
                                                 : (void *) &(reinterpret_cast<sockaddr_in6 *>(publicAddress.get())->sin6_addr),

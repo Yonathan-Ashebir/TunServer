@@ -13,7 +13,7 @@
 using namespace std;
 
 #define PACKET_SIZE 3072;
-#define IP_ADDR "192.168.99.64"
+#define IP_ADDR "0.0.0.0"
 
 using namespace std;
 
@@ -21,6 +21,7 @@ void handleSingleConnection() {
     initPlatform();
 
     UDPSocket tunnelSocket;
+    tunnelSocket.setReuseAddress(true);
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     inet_pton(AF_INET, IP_ADDR, &addr.sin_addr.s_addr);
@@ -81,6 +82,7 @@ void handleDownload() {
     initPlatform();
 
     UDPSocket tunnelSocket;
+    tunnelSocket.setReuseAddress(true);
     sockaddr_in addr{};
     addr.sin_family = AF_INET;
     inet_pton(AF_INET, IP_ADDR, &addr.sin_addr.s_addr);
@@ -279,7 +281,8 @@ void handleDownload() {
 
 
 int main() {
-    handleDownload();
+//    handleDownload();
+handleSingleConnection();
     return 0;
 }
 

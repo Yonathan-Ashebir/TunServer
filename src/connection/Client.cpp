@@ -45,7 +45,7 @@ void test1() {
 
     TCPSocket stunSocket;
     stunSocket.bind(bindAddress);
-    auto publicAddress = getTCPMappedAddress(stunSocket);
+    auto publicAddress = getTCPPublicAddress(stunSocket);
     if (inet_ntop(publicAddress->ss_family, (publicAddress->ss_family == AF_INET)
                                             ? (void *) &(reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_addr)
                                             : (void *) &(reinterpret_cast<sockaddr_in6 *>(publicAddress.get())->sin6_addr),
@@ -159,7 +159,7 @@ void test2() {
     TCPSocket stunSocket;
     stunSocket.setReuseAddress(true);
     stunSocket.bind(bindAddress);
-    auto publicAddress = getTCPMappedAddress(stunSocket);
+    auto publicAddress = getTCPPublicAddress(stunSocket);
     if (inet_ntop(publicAddress->ss_family, (publicAddress->ss_family == AF_INET)
                                             ? (void *) &(reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_addr)
                                             : (void *) &(reinterpret_cast<sockaddr_in6 *>(publicAddress.get())->sin6_addr),
@@ -202,7 +202,7 @@ void test2() {
             throw BadException("Could not set servers ip");
 
         /*imp: Do not forget*/
-//        auto mp = getTCPMappedAddress(serverAddr);
+//        auto mp = getTCPPublicAddress(serverAddr);
 //        serverAddr = *mp;
 
         auto startTime = chrono::steady_clock::now();
@@ -227,7 +227,39 @@ errno != ECONNREFUSED && errno != ETIMEDOUT
                 } else usleep(10000);
             } else {
                 printf("Separately Connected\n");
-                char buf[1000]{};
+                char buf[10000]{};
+
+                auto lastReadTime = chrono::steady_clock::now();
+                reader.setBlocking(false);
+                unsigned long amt{};
+                while (true) {
+                    int r = reader.receiveIgnoreWouldBlock(buf, sizeof buf);
+                    if (r > 0) {
+                        amt += r;
+                        lastReadTime = chrono::steady_clock::now();
+                        cout << "Read bytes: " << r << ", total: " << amt << endl;
+
+                    } else if (r == 0) {
+                        cout << "Separate socket closed gracefully after reading bytes: " << amt << endl;
+                        break;
+                    } else {
+                        if (chrono::steady_clock::now() - lastReadTime > chrono::milliseconds(3000)) {
+                            cout << "Separate socket timed out after reading bytes: " << amt << endl;
+                            break;
+                        }
+                    }
+                    usleep(10000);
+                }
+                TCPSocket sock2;
+                sock2.setReuseAddress(true);
+                sock2.bind(bindAddress);
+                sockaddr_in otherStunAddr{AF_INET, htons(3478)};
+                inet_pton(AF_INET, "193.22.17.97", &otherStunAddr.sin_addr);
+                sock2.connect(otherStunAddr);
+                auto r = getTCPPublicAddress(sock2, true);
+                cout << "Public address after: " << getAddressString(*r) << endl;
+                break;
+
                 reader.receive(buf, sizeof buf);
                 deserializeJson(doc, buf);
                 if (doc.containsKey("servers")) {
@@ -255,6 +287,7 @@ errno != ECONNREFUSED && errno != ETIMEDOUT
     } else exitWithError("curl_easy_init failed");
 
     curl_global_cleanup();
+
 }
 
 void test3() {
@@ -274,7 +307,7 @@ void test3() {
 
     TCPSocket stunSocket;
     stunSocket.bind(bindAddress);
-    auto publicAddress = getTCPMappedAddress(stunSocket);
+    auto publicAddress = getTCPPublicAddress(stunSocket);
     if (inet_ntop(publicAddress->ss_family, (publicAddress->ss_family == AF_INET)
                                             ? (void *) &(reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_addr)
                                             : (void *) &(reinterpret_cast<sockaddr_in6 *>(publicAddress.get())->sin6_addr),
@@ -317,7 +350,7 @@ void test3() {
             throw BadException("Could not set servers ip");
 
         /*imp: Do not forget*/
-//        auto mp = getTCPMappedAddress(serverAddr);
+//        auto mp = getTCPPublicAddress(serverAddr);
 //        serverAddr = *mp;
 
         auto startTime = chrono::steady_clock::now();
@@ -404,9 +437,7 @@ err != ECONNREFUSED && err != ETIMEDOUT
 int main() {
     initPlatform();
     size_t count{};
-    while (true) {
+    while (true)
         test2();
-        printf("Worked for the %d time\n", ++count);
-    }
 
 }

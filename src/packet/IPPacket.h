@@ -70,7 +70,7 @@ public:
 
 protected:
     unsigned char *buffer{};
-    const unsigned int maxSize{};
+    unsigned int maxSize{};
     unsigned *count = new unsigned{1};
 
     inline iphdr *getIpHeader() const;
@@ -84,7 +84,7 @@ private:
 
 IPPacket::IPPacket(unsigned int size) : maxSize(size) {
     if (size < MIN_SIZE)
-        throw invalid_argument("size is " + to_string(size) + "size can not be below " + to_string(MIN_SIZE));
+        throw invalid_argument("capacity is " + to_string(size) + "capacity can not be below " + to_string(MIN_SIZE));
 
     buffer = new unsigned char[size]();
 

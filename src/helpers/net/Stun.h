@@ -8,38 +8,56 @@
 #include "../Include.h"
 #include "Socket.h"
 
-inline unique_ptr<sockaddr_storage> getTUNServerAddress(bool forceRefresh = false) {
-    auto result = std::make_unique<sockaddr_storage>(sockaddr_storage{AF_INET6});
-    auto result_in = reinterpret_cast<sockaddr_in *>(result.get());//todo in
-
-    addrinfo hints{0, AF_INET, SOCK_STREAM}, *addresses;
+inline unique_ptr<sockaddr_storage> getTCPSTUNServer(sa_family_t family = AF_INET, bool forceRefresh = false) {
+    auto result = std::make_unique<sockaddr_storage>(sockaddr_storage{family});
+    addrinfo hints{0, family, SOCK_STREAM}, *addresses;
     int code;
-    if ((code = getaddrinfo("stun.sipnet.net", "http", &hints, &addresses)) != 0) {
+    if ((code = getaddrinfo("212.53.40.40", "http", &hints, &addresses)) != 0) {
         exitWithError("Could not resolve host with error " + string(gai_strerror(code)));
     }
     *result = *reinterpret_cast<sockaddr_storage *>(addresses->ai_addr);
-    result_in->sin_port = htons(3478);
+    initialize(*result, family, nullptr, 3478);
     freeaddrinfo(addresses);
 
     return result;
 }
 
-inline unique_ptr<sockaddr_storage> getTCPMappedAddress(TCPSocket &sock, bool isConnected = false) {
+
+inline unique_ptr<sockaddr_storage> getUDPSTUNServer(sa_family_t family = AF_INET, bool forceRefresh = false) {
+    auto result = std::make_unique<sockaddr_storage>(sockaddr_storage{family});
+    addrinfo hints{0, family, SOCK_STREAM}, *addresses;
+    int code;
+    if ((code = getaddrinfo("stun.l.google.com", "http", &hints, &addresses)) != 0) {
+        exitWithError("Could not resolve host with error " + string(gai_strerror(code)));
+    }
+    *result = *reinterpret_cast<sockaddr_storage *>(addresses->ai_addr);
+    initialize(*result, family, nullptr, 19302);
+    freeaddrinfo(addresses);
+
+    return result;
+}
+
+inline unique_ptr<sockaddr_storage> getTCPPublicAddress(TCPSocket &sock, bool isConnected = false) {
     if (!isConnected) {
-        auto stunAddr = getTUNServerAddress();
+        auto stunAddr = getTCPSTUNServer();
         sock.connect(*stunAddr);
     }
 
-    unsigned char tsx[12];
-    stun::message request(stun::message::binding_request,
-                          tsx);
-
-//    char testBuf[20]{};
-//    testBuf[1] = 1;
     int sent{};
-    while (sent < request.size()) {
-        sent += sock.send(request.data() + sent,
-                          request.size() - sent);// NOLINT(cppcoreguidelines-narrowing-conversions)
+
+//    unsigned char tsx[12];
+//    stun::message request(stun::message::binding_request,
+//                          tsx);
+//    while (sent < request.capacity()) {
+//        sent += sock.send(request.data() + sent,
+//                          request.capacity() - sent);// NOLINT(cppcoreguidelines-narrowing-conversions)
+//    }
+//
+    char testBuf[20]{};
+    testBuf[1] = 1;
+    while (sent < sizeof testBuf) {
+        sent += sock.send(testBuf + sent,
+                          sizeof testBuf - sent);// NOLINT(cppcoreguidelines-narrowing-conversions)
     }
 
     stun::message response{};
@@ -72,12 +90,67 @@ inline unique_ptr<sockaddr_storage> getTCPMappedAddress(TCPSocket &sock, bool is
     return address;
 }
 
-inline unique_ptr<sockaddr_storage> getTCPMappedAddress(sockaddr_storage &bindAddr) {
+inline unique_ptr<sockaddr_storage> getTCPPublicAddress(sockaddr_storage &bindAddr) {
     TCPSocket sock;
     sock.setReuseAddress(true);
     sock.bind(bindAddr);
-    auto result = getTCPMappedAddress(sock);
+    auto result = getTCPPublicAddress(sock);
     return result;
 }
+
+
+inline unique_ptr<sockaddr_storage> getUDPPublicAddress(UDPSocket &sock, bool isConnected = false) {
+    if (!isConnected) {
+        auto stunAddr = getUDPSTUNServer();
+        sock.connect(*stunAddr);
+    }
+
+//    unsigned char tsx[12];
+//    stun::message request(stun::message::binding_request,
+//                          tsx);
+//    if (sock.send(request.data(),
+//                  request.capacity()) < request.capacity())
+//        throw BadException("UDP stun request trimmed");
+
+    char testBuf[20]{};
+    testBuf[1] = 1;
+//    for (int ind = 4; ind < sizeof testBuf; ind++) {
+//        testBuf[ind] = round(rand() *  255);
+//    }
+    if (sock.send(testBuf,
+                  sizeof testBuf) < sizeof testBuf)
+        throw BadException("UDP stun request trimmed");
+
+
+    stun::message response{};
+    response.resize(60);
+    sock.receive(response.data(),
+                 response.capacity());
+
+    using namespace stun::attribute;
+    auto address = std::make_unique<sockaddr_storage>(sockaddr_storage{AF_INET});//todo: compatitblity with ipv6
+    for (auto &attr: response) {
+        // First, check the attribute type
+        switch (attr.type()) {
+            case type::mapped_address:
+                attr.to<type::mapped_address>().to_sockaddr((sockaddr *) address.get());
+                break;
+            case type::xor_mapped_address:
+                attr.to<type::xor_mapped_address>().to_sockaddr((sockaddr *) address.get());
+                return address;
+        }
+    }
+    return address;
+}
+
+
+inline unique_ptr<sockaddr_storage> getUDPPublicAddress(sockaddr_storage &bindAddr) {
+    UDPSocket sock;
+    sock.setReuseAddress(true);
+    sock.bind(bindAddr);
+    auto result = getUDPPublicAddress(sock);
+    return result;
+}
+
 
 #endif //TUNSERVER_STUN_H

@@ -29,7 +29,7 @@ include_directories(external/stun/include)
 # Executables
 add_executable(tunServer src/handler/Main.cpp src/session/TCPSession.cpp src/handler/Handler.cpp src/packet/TCPPacket.cpp ${COMMON_SOURCES})
 
-add_executable(test src/Test.cpp src/packet/TCPPacket.cpp ${COMMON_SOURCES})
+add_executable(test src/Test.cpp src/packet/TCPPacket.cpp src/Test2.cpp ${COMMON_SOURCES})
 target_link_libraries(test PRIVATE stunmsg)
 
 add_executable(listener src/Listener.c)
@@ -38,12 +38,14 @@ add_executable(handlerTest src/handler/HandlerTest.cpp
         src/session/TCPSession.cpp
 
         src/packet/TCPPacket.cpp
-        ${COMMON_SOURCES} src/packet/CompressedTCPPacket.cpp src/packet/CompressedTCPPacket.h)
+        ${COMMON_SOURCES} src/packet/TCPPacket.cpp)
 
 add_executable(jsonTest src/json/JsonTest.cpp ${COMMON_SOURCES})
 
 add_executable(curlTest src/CurlTest.cpp ${COMMON_SOURCES})
 target_link_libraries(curlTest PRIVATE libcurl)
+
+add_executable(gccTest src/GCCTest.cpp)
 
 add_executable(connectionBuilder src/connection/ConnectionBuilderTest.cpp
         src/connection/ConnectionFetcher.cpp
@@ -57,6 +59,8 @@ target_link_libraries(stunLib PRIVATE stunmsg)
 
 add_executable(tunClient src/connection/Client.cpp ${COMMON_SOURCES})
 target_link_libraries(tunClient PRIVATE libcurl stunmsg)
+
+add_executable(smartBuffer src/helpers/buffer/SmartBufferTest.cpp ${COMMON_SOURCES})
 
 #Tests
 #add_test(NAME ConnectionBuilderTest COMMAND connectionBuilder)
