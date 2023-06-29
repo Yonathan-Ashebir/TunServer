@@ -994,6 +994,28 @@ void emptyArrayPointerTest() {
     cout << "After" << endl;
 }
 
+void artimetryOnPointerTest() {
+    char *n = nullptr;
+    char *a = (char *) 1;
+    char *b = (char *) 2;
+    int *i = (int *) 2;
+    int *i2 = (int *) 3;
+    int *i3 = (int *) 7;
+    void *v1 = i2;
+    void *v2 = i3;
+    printf("Ptr 0x%llX\n", a - n);
+    printf("Ptr 0x%llX\n", b - a);
+//    printf("Ptr 0x%lX\n", i - n ); //Not valid
+    printf("Ptr 0x%llX\n", i2 - i); //Prints 0
+    printf("Ptr 0x%llX\n", i3 - i2); //Prints 1
+    printf("Ptr 0x%llX\n", i3 - i); //Prints 1
+    printf("Ptr 0x%llX\n", i3 - i); //Prints 1
+//    printf("Ptr 0x%llX\n", i3 + i); //Not valid
+//    printf("Ptr 0x%llX\n", v2 - v1); //Not valid
+
+
+}
+
 void testPrintAddress() {
     printf("Ptr1 0x%lX\n", printf);
     printf("Ptr1 0x%lX\n", &printf);
@@ -1083,10 +1105,12 @@ void testTypeComparition() {
 }
 
 int main() {
-
     initPlatform();
+    unsigned a = 2;
+    unsigned b = 3;
+    auto res = -a;
+    printf("%ud\n", res < 0);
 
-    testTypeComparition();
 }
 
 #pragma clang diagnostic pop

@@ -8,361 +8,436 @@
 #define TUNSERVER_SMARTBUFFER_H
 
 #include "../Include.h"
+#include "../math/Utilities.h"
 
 template<typename Object=char>
 class SmartBuffer {
+private:
+
 public:
-    SmartBuffer(Object *buf, unsigned int size, void *release = nullptr) : data(
-            new Data{buf, size, release}) {};
+    SmartBuffer(Object *buf, unsigned int size, shared_ptr<void> release = nullptr, bool bytesSize = false);;
 
-    /* Generate a smart buffer with backing array of capacity @param todo capacity*/
-    explicit SmartBuffer(unsigned int size) : data(new Data{new Object[size]{}, size}) {
-    }
+    /* Generate a smart buffer with backing array of bytesCapacity @param todo bytesCapacity*/
+    explicit SmartBuffer(unsigned int size);
 
-    SmartBuffer(SmartBuffer &other) {
-        data = other.data;
-        data->count++;
-    }
+    SmartBuffer(SmartBuffer &other) = default;
 
-    SmartBuffer(SmartBuffer &&other) noexcept {
-        data = other.data;
-        other.data = nullptr;
-    }
+    SmartBuffer(SmartBuffer &&other) noexcept = default;
 
-    SmartBuffer &operator=(const SmartBuffer &other) { // NOLINT(bugprone-unhandled-self-assignment)
-        if (data != other.data) {
-            if (data && !--data->count) { //TODO: check whether this decrements the field then retries it again
-                if (data->releaseBuffer && !*--data->bufferCount) delete data->releaseBuffer;
-                delete data;
-            }
-            data = other.data;
-            data->datacount++;
-        }
-    }
+    SmartBuffer &operator=(const SmartBuffer &other) = default;
 
-    SmartBuffer &operator=(SmartBuffer &&other) noexcept {
-        if (data != other.data) {
-            if (data != nullptr && !--data->count) {
-                if (data->releaseBuffer && !*--data->bufferCount) delete data->releaseBuffer;
-                delete data;
-            }
-            data = other.data;
-            other.data = nullptr;
-        }
-    }
+    SmartBuffer &operator=(SmartBuffer &&other) noexcept = default;
 
-    ~SmartBuffer() {
-        if (data != nullptr && !--data->count) {
-            if (data->releaseBuffer && !*--data->bufferCount) delete data->releaseBuffer;
-            delete data;
-        }
-    }
 
 /*TODO: comparison*/
 
-/** Generates a new smart buffer that is backed by the same array, with independent offset (set to the same value), position, mark, and limit. */
-    SmartBuffer copy() {
-        SmartBuffer<Object> newBuffer(data->buffer, data->capacity, data->releaseBuffer);
-        newBuffer.data->offset = data->offset;
-        if (data->releaseBuffer) {
-            newBuffer.data->bufferCount = data->bufferCount;
-            ++*data->bufferCount;
-        }
-        return newBuffer;
-    }
+/** Generates a new smart buffer that is backed by the same array, with independent bytesOffset (set to the same value), position, mark, and limit. */
+    SmartBuffer copy();
 
-    /*TODO: make less discarding*/
+/** Generates a copy of this buffer with position of 0, points to <b>off</b> of this buffer, and the limit is set to <b>limit</b rounded down to the closest equivalent>*/
     template<typename Object2=Object>
-    SmartBuffer as(unsigned int off) {
-        if (off > data->capacity)throw out_of_range("Off can not exceed the capacity");
-        auto totalOff = (data->capacity - data->offset > off) ? data->offset + off : off -
-                                                                                     (data->capacity - data->offset);
-        unsigned int newOff = (totalOff * sizeof(Object)) / sizeof(Object2);
-        unsigned int remaining = ((data->capacity - totalOff) * sizeof(Object)) / sizeof(Object2);
-
-        SmartBuffer<Object2> newBuffer((Object2 *) (data->buffer + totalOff) - newOff, newOff + remaining,
-                                       data->releaseBuffer);
-        newBuffer.data->offset = newOff;
-        if (data->releaseBuffer) {
-            newBuffer.data->bufferCount = data->bufferCount;
-            ++*data->bufferCount;
-        }
-        return newBuffer;
-    }
-
-/** Generates a copy of this buffer with position of 0, points to <b>off</b> of this buffer, and the limit is set to <b>limit</b>*/
-    SmartBuffer slice(int off, int limit) {
-        if (off > data->capacity)throw out_of_range("Off can not exceed the capacity");
-        auto totalOff = (data->capacity - data->offset > off) ? data->offset + off : off -
-                                                                                     (data->capacity - data->offset);
-        totalOff -= data->capacity;
-        SmartBuffer newBuffer(data->buffer, data->capacity, data->releaseBuffer);
-        newBuffer.data->offset = totalOff;
-        newBuffer.setLimit(limit);
-        if (data->releaseBuffer) {
-            newBuffer.data->bufferCount = data->bufferCount;
-            ++*data->bufferCount;
-        }
-        return newBuffer;
-    }
+    SmartBuffer<Object2> as(unsigned int off, unsigned int limit);
 
     template<typename Object2=Object>
-    Object2 get() {
-        return get(data->position++);
-    }
+    Object2 get();
+
+    /*TODO: may be a pointer to the buffer it self is better?*/
+    template<typename Object2=Object>
+    Object2 get(unsigned int off);
 
     template<typename Object2=Object>
-    Object2 get(unsigned int off) {
-        if (sizeof(Object2) == 1) {
-            if (off >= data->limit)throw out_of_range("Can not read beyond the limit");
-            auto totalOff = data->offset + off;
-            if (data->capacity > totalOff)return data->buffer[totalOff];
-            else return data->buffer[totalOff - data->capacity];
-        } else {
-            Object obj;
-            get(obj, off);
-            return obj;
-        }
-    }
-
-
-    template<typename Object2=Object>
-    SmartBuffer &get(Object2 &obj) {
-        get(obj, data->position);
-        data->position += (unsigned int) ceil((double) sizeof obj / (double) sizeof(Object));
-        return *this;
-    }
+    SmartBuffer &get(Object2 &obj);
 
 /**Imp: increments the position by rounding*/
     template<typename Object2=Object>
-    SmartBuffer &get(Object2 &obj, unsigned int off) {
-        getRaw(off, &obj, sizeof obj);
-        return *this;
-    }
+    SmartBuffer &get(Object2 &obj, unsigned int off);
 
 
     template<typename Object2=Object>
-    SmartBuffer &get(Object2 objs[], unsigned int len) {
-        get(objs, len, data->position);
-        data->position += (unsigned int) ceil((double) sizeof(Object2) / (double) sizeof(Object) * len);
-        return *this;
-    };
+    SmartBuffer &get(Object2 objs[], unsigned int len);;
 
     template<typename Object2=Object>
-    SmartBuffer &get(Object2 objs[], unsigned int len, unsigned int off) {
-        getRaw(off, objs, len * sizeof(Object2));
-        return *this;
-    }
+    SmartBuffer &get(Object2 objs[], unsigned int len, unsigned int off);
 
     template<typename Object2=Object>
     unsigned int
-    writeTo(function<unsigned int(Object2 *buf, unsigned int len)> writer) {
-        auto written = writeTo(writer, data->position);
-        data->position += written;
-        return written;
-    }
+    manipulate(function<unsigned int(Object2 *buf, unsigned int len)> &&writer);
 
-    template<typename Object2=Object>
+    /*Manipulate bytes of at most <b>max</b> no of elements starting from <b>off</b>. Returns number of bytes manipulated.*/
     unsigned int
-    writeTo(function<unsigned int(Object2 *buf, unsigned int len)> writer, unsigned int off,
-            unsigned int max = numeric_limits<unsigned int>::max()) {
-        alter(writer, off, max);
-    }
+    manipulate(function<unsigned int(char *buf, unsigned int len)> &&fun, unsigned int off,
+               unsigned int max = numeric_limits<unsigned int>::max());
 
     template<typename Object2=Object>
-    SmartBuffer &put(Object2 &obj) {
-        put(obj, data->position);
-        data->position += (unsigned int) ceil((double) sizeof obj / (double) sizeof(Object));
-        return *this;
-    }
+    SmartBuffer &put(Object2 &&obj);
 
     template<typename Object2=Object>
-    SmartBuffer &put(Object2 &obj, unsigned int off) {
-        putRaw(off, &obj, sizeof obj);
-        return *this;
-    }
+    SmartBuffer &put(Object2 &obj);
 
     template<typename Object2=Object>
-    SmartBuffer &put(Object2 objs[], unsigned int len) {
-        put(objs, len, data->position);
-        data->position += (unsigned int) ceil((double) sizeof(Object2) / (double) sizeof(Object) * len);
-        return *this;
-    }
+    SmartBuffer &put(Object2 &&obj, unsigned int off);
 
     template<typename Object2=Object>
-    SmartBuffer &put(Object2 objs[], unsigned int len, unsigned int off) {
-        putRaw(off, objs, len * sizeof(Object2));
-        return *this;
-    }
+    SmartBuffer &put(Object2 &obj, unsigned int off);
 
     template<typename Object2=Object>
-    unsigned int
-    readFrom(function<unsigned int(Object2 *buf, unsigned int len)> writer) {
-        auto read = readFrom(writer, data->position);
-        data->position += read;
-        return read;
-    }
+    SmartBuffer &put(Object2 objs[], unsigned int len);
 
     template<typename Object2=Object>
-    unsigned int
-    readFrom(function<unsigned int(Object2 *buf, unsigned int len)> reader, unsigned int off,
-             unsigned int max = numeric_limits<unsigned int>::max()) {
-        alter(reader, off, max);
-    }
+    SmartBuffer &put(Object2 objs[], unsigned int len, unsigned int off);
 
-    unsigned int getLimit() {
-        return data->limit;
-    }
+    unsigned int getLimit();
 
+    SmartBuffer &setLimit(unsigned int limit);
 
-    SmartBuffer &setLimit(unsigned int limit) {
-        if (limit > data->capacity)throw out_of_range("Limit can not exceed the capacity");
-        data->limit = limit;
-        return *this;
-    }
+    unsigned int getPosition();
 
-    unsigned int getPosition() { return data->position; }
+    SmartBuffer &setPosition(unsigned int pos);
 
-    SmartBuffer &setPosition(unsigned int pos) {
-        if (pos > data->limit)throw out_of_range("Position can not exceed the limit");
-        data->position = pos;
-        return *this;
-    }
+    SmartBuffer &setMark();
 
-    SmartBuffer &setMark() {
-        return mark(data->position);
-    }
+    SmartBuffer &setMark(unsigned int off);
 
-    SmartBuffer &setMark(unsigned int off) {
-        if (off > data->position)throw out_of_range("Mark can not exceed the position");
-        data->isMarked = true;
-        data->mark = off;
-    }
+    unsigned int getMark();
 
-    unsigned int getMark() {
-        return data->mark;
-    }
+    bool isMarked();
 
-    bool isMarked() {
-        return data->isMarked;
-    }
+    unsigned int getCapacity();
 
-    unsigned int getCapacity() {
-        return data->capacity;
-    }
+    unsigned int getRawCapacity();
 
-    unsigned int available() {
-        return data->limit - data->position;
-    }
+    unsigned int available();
 
-    SmartBuffer &compact(unsigned int keep = 0) {
-        if (keep > data->position)throw out_of_range("Amount to keep can not exceed position");
-        auto off = data->position - keep;
-        auto totalOff = (data->capacity - data->offset > off) ? data->offset + off : off -
-                                                                                     (data->capacity - data->offset);
-        data->offset = totalOff;
-        data->position = keep;
-        data->limit = data->capacity;
-        data->isMarked = false;
-    }
+/*Sets the start of the buffer to position - keep, with position set to keep. The mark, if set, is discarded. */
+    SmartBuffer &compact(unsigned int keep = 0);
 
     SmartBuffer &clear() {
         data->position = 0;
-        data->limit = data->capacity;
+        data->limit = data->bytesCapacity / sizeof(Object);
         data->isMarked = false;
+        return *this;
     }
 
-    SmartBuffer &flip() {
-        data->limit = data->position;
-        data->position = 0;
-        data->isMarked = false;
-    }
+    SmartBuffer &flip();
 
-    SmartBuffer &rewind() {
-        data->position = 0;
-        data->isMarked = false;
-    }
+    SmartBuffer &rewind();
 
-    SmartBuffer &reset() {
-        if (!data->isMarked) throw logic_error("Mark is not set before reset call");
-        data->position = data->mark;
-    }
+    SmartBuffer &reset();
 
+    Object *getBuffer();
+
+    unsigned int getBytesOffset();
 
 private:
     struct Data { // NOLINT(cppcoreguidelines-pro-type-member-init)
-        laterinit Object *buffer;
-        laterinit const unsigned int capacity;
-        void *releaseBuffer{};
-        unsigned int *bufferCount = new unsigned int{1};
-        unsigned int offset{};
-        unsigned int position{};
+        laterinit char *buffer{};
+        laterinit size_t bytesCapacity; /*In bytes*/
+        shared_ptr<void> releaseBuffer{buffer};//todo: test intel-sense () vs {}
+        size_t bytesOffset{}; /*In bytes*/
+        unsigned int position{}; /*In Objs*/
         bool isMarked{};
-        laterinit unsigned int mark;
-        unsigned int limit{capacity};
-        unsigned int count{1};
-    } *data;
+        unsigned int mark; /*In Objs*/
+        unsigned int limit{(unsigned int) (bytesCapacity /
+                                           sizeof(Object))}; /*In Objs*/ //IMP: a narrowing cast, could have changed type to size_t
+    };
+    shared_ptr<Data> data;
 
-    inline void getRaw(unsigned int off, void *buf, unsigned int len) {
-        if (off + (unsigned int) ceil((double) len / (double) sizeof(Object)) > data->limit) {
-            throw out_of_range("Can not read beyond the limit");
-        }
+    inline void getRaw(unsigned int off, void *buf, unsigned int len);
 
-        auto totalOff = data->offset + off;
-        if (data->capacity > totalOff) {
-            auto amt = min(len, data->capacity - totalOff);
-            memcpy(buf, data->buffer + totalOff, amt);
-            len -= amt;
-            buf += amt;
-        }
-        if (len)
-            memcpy(buf, data->buffer, len);
-    }
+    inline void putRaw(unsigned int off, void *buf, unsigned int len);
 
-    inline void putRaw(unsigned int off, void *buf, unsigned int len) {
-        if (off + (unsigned int) ceil((double) len / (double) sizeof(Object)) > data->limit) {
-            throw out_of_range("Can not write beyond the limit");
-        }
-
-        auto totalOff = data->offset + off;
-        if (data->capacity > totalOff) {
-            auto amt = min(len, data->capacity - totalOff);
-            memcpy(data->buffer + totalOff, buf, amt);
-            len -= amt;
-            buf += amt;
-        }
-        if (len)
-            memcpy(data->buffer, buf, len);
-    }
-
-
-    template<typename Object2=Object>
-    unsigned int
-    alter(function<unsigned int(Object2 *buf, unsigned int len)> fun, unsigned int off,
-          unsigned int max = numeric_limits<unsigned int>::max()) {
-        auto remaining = max = min(max, data->limit - off);
-        auto totalOff = data->offset + off;
-        if (data->capacity > totalOff) {
-            auto total = min(max, data->capacity - totalOff);
-            auto amt = fun((Object2 *) (data->buffer + totalOff), total);
-            if (amt < total)return amt;
-            remaining -= amt;
-        }
-        if (remaining) {
-            auto amt = fun((Object2 *) data->buffer, remaining);
-            remaining -= amt;
-        }
-        return max - remaining;
-    }
-
-    Object *getBuffer() {
-        return data->buffer;
-    }
-
-    unsigned int getInternalOffset() {
-        return data->offset;
-    }
+    inline void _copyRaw(unsigned int bytesOff, void *buf, size_t len, bool isWriteTo = false);
 };
+
+template<typename Object>
+SmartBuffer<Object>::SmartBuffer(Object *buf, unsigned int size, shared_ptr<void> release, bool bytesSize) : data(
+        new Data{buf, size * (bytesSize ? 1 : sizeof(Object)), release}) {}
+
+template<typename Object>
+SmartBuffer<Object>::SmartBuffer(unsigned int size) : data(
+        new Data{new char[size * sizeof(Object)]{}, size * sizeof(Object)}) {
+}
+
+template<typename Object>
+SmartBuffer<Object> SmartBuffer<Object>::copy() {
+    SmartBuffer<Object> newBuffer(data->buffer, data->bytesCapacity, data->releaseBuffer, true);
+    newBuffer.data->bytesOffset = data->bytesOffset;
+    return newBuffer;
+}
+
+template<typename Object>
+template<typename Object2>
+SmartBuffer<Object2> SmartBuffer<Object>::as(unsigned int off, unsigned int limit) {
+    auto bytesOff = off * sizeof(Object);
+    if (bytesOff > data->limit * sizeof(Object))throw out_of_range("Offset can not exceed the limit");
+
+    auto realOff = boundedShiftUnchecked(data->bytesOffset, bytesOff, 0, data->bytesCapacity);
+
+    SmartBuffer<Object2> newBuffer(data->buffer, data->bytesCapacity, data->releaseBuffer, true);
+    newBuffer.data->bytesOffset = realOff;
+    newBuffer.setLimit(limit * sizeof(Object) / sizeof(Object2));
+    return newBuffer;
+}
+
+template<typename Object>
+template<typename Object2>
+Object2 SmartBuffer<Object>::get() {
+    return get<Object2>(data->position++);
+}
+
+template<typename Object>
+template<typename Object2>
+Object2 SmartBuffer<Object>::get(unsigned int off) {
+    if (sizeof(Object2) == 1) {
+        if (off >= data->limit)throw out_of_range("Can not read beyond the limit");
+        return *reinterpret_cast<Object2 *>(data->buffer +
+                                            boundedShiftUnchecked(data->bytesOffset, off * sizeof(Object),
+                                                                  (decltype(data->bytesOffset)) 0,
+                                                                  data->bytesCapacity));
+    } else {
+        Object2 obj;
+        get<Object2>(obj, off);
+        return obj;
+    }
+}
+
+template<typename Object>
+template<typename Object2>
+SmartBuffer<Object> &SmartBuffer<Object>::get(Object2 &obj) {
+    get<Object2>(obj, data->position);
+    data->position += (unsigned int) ceil((double) sizeof obj / (double) sizeof(Object));
+    return *this;
+}
+
+template<typename Object>
+template<typename Object2>
+SmartBuffer<Object> &SmartBuffer<Object>::get(Object2 &obj, unsigned int off) {
+    getRaw(off * sizeof(Object), &obj, sizeof obj);
+    return *this;
+}
+
+template<typename Object>
+template<typename Object2>
+SmartBuffer<Object> &SmartBuffer<Object>::get(Object2 *objs, unsigned int len) {
+    get<Object2>(objs, len, data->position);
+    data->position += (unsigned int) ceil((double) sizeof(Object2) / (double) sizeof(Object) * len);
+    return *this;
+}
+
+template<typename Object>
+template<typename Object2>
+SmartBuffer<Object> &SmartBuffer<Object>::get(Object2 *objs, unsigned int len, unsigned int off) {
+    getRaw(off * sizeof(Object), objs, len * sizeof(Object2));
+    return *this;
+}
+
+template<typename Object>
+template<typename Object2>
+unsigned int SmartBuffer<Object>::manipulate(function<unsigned int(Object2 *, unsigned int)> &&writer) {
+    auto mani = manipulate(writer, data->position);
+    data->position += mani;
+    return mani;
+}
+
+template<typename Object>
+unsigned int
+SmartBuffer<Object>::manipulate(function<unsigned int(char *, unsigned int)> &&fun, unsigned int off,
+                                unsigned int max) {
+    if (off >= data->limit)throw out_of_range("Offset can not exceed the limit");
+    auto remaining = max = min(max, data->limit - off) * sizeof(Object);
+    if (data->bytesCapacity - data->bytesOffset > off * sizeof(Object)) {
+        auto realOff = data->bytesOffset + off * sizeof(Object);
+        auto total = min(max, data->bytesCapacity - realOff);
+        auto amt = fun((data->buffer + realOff), total);
+        if (amt < total)return amt;
+        remaining -= amt;
+    }
+    if (remaining) {
+        auto amt = fun(data->buffer, remaining);
+        remaining -= amt;
+    }
+    return max - remaining;
+}
+
+template<typename Object>
+template<typename Object2>
+SmartBuffer<Object> &SmartBuffer<Object>::put(Object2 &&obj) {
+    put<Object2>(obj, data->position);
+    data->position += (unsigned int) ceil((double) sizeof obj / (double) sizeof(Object));
+    return *this;
+}
+
+template<typename Object>
+template<typename Object2>
+SmartBuffer<Object> &SmartBuffer<Object>::put(Object2 &obj) {
+    put<Object2>(obj, data->position);
+    data->position += (unsigned int) ceil((double) sizeof obj / (double) sizeof(Object));
+    return *this;
+}
+
+template<typename Object>
+template<typename Object2>
+SmartBuffer<Object> &SmartBuffer<Object>::put(Object2 &&obj, unsigned int off) {
+    put<Object2>(obj, off);
+    return *this;
+}
+
+template<typename Object>
+template<typename Object2>
+SmartBuffer<Object> &SmartBuffer<Object>::put(Object2 &obj, unsigned int off) {
+    putRaw(off * sizeof(Object), &obj, sizeof obj);
+    return *this;
+}
+
+template<typename Object>
+template<typename Object2>
+SmartBuffer<Object> &SmartBuffer<Object>::put(Object2 *objs, unsigned int len) {
+    put<Object2>(objs, len, data->position);
+    data->position += (unsigned int) ceil((double) sizeof(Object2) / (double) sizeof(Object) * len);
+    return *this;
+}
+
+template<typename Object>
+template<typename Object2>
+SmartBuffer<Object> &SmartBuffer<Object>::put(Object2 *objs, unsigned int len, unsigned int off) {
+    putRaw(off * sizeof(Object), (void *) objs, len * sizeof(Object2));
+    return *this;
+}
+
+template<typename Object>
+unsigned int SmartBuffer<Object>::getLimit() {
+    return data->limit;
+}
+
+template<typename Object>
+SmartBuffer<Object> &SmartBuffer<Object>::setLimit(unsigned int limit) {
+    if (limit > getCapacity())throw out_of_range("Limit can not exceed the bytesCapacity");
+    data->limit = limit;
+    return *this;
+}
+
+template<typename Object>
+unsigned int SmartBuffer<Object>::getPosition() { return data->position; }
+
+template<typename Object>
+SmartBuffer<Object> &SmartBuffer<Object>::setPosition(unsigned int pos) {
+    if (pos > data->limit)throw out_of_range("Position can not exceed the limit");
+    data->position = pos;
+    return *this;
+}
+
+template<typename Object>
+SmartBuffer<Object> &SmartBuffer<Object>::setMark() {
+    data->isMarked = true;
+    data->mark = data->position;
+    return *this;
+}
+
+template<typename Object>
+SmartBuffer<Object> &SmartBuffer<Object>::setMark(unsigned int off) {
+    if (off > data->position)throw out_of_range("Mark can not exceed the position");
+    data->isMarked = true;
+    data->mark = off;
+    return *this;
+}
+
+template<typename Object>
+unsigned int SmartBuffer<Object>::getMark() {
+    return data->mark;
+}
+
+template<typename Object>
+bool SmartBuffer<Object>::isMarked() {
+    return data->isMarked;
+}
+
+template<typename Object>
+unsigned int SmartBuffer<Object>::getCapacity() {
+    return data->bytesCapacity / sizeof(Object);
+}
+
+template<typename Object>
+unsigned int SmartBuffer<Object>::getRawCapacity() {
+    return data->bytesCapacity;
+}
+
+template<typename Object>
+unsigned int SmartBuffer<Object>::available() {
+    return data->limit - data->position;
+}
+
+template<typename Object>
+SmartBuffer<Object> &SmartBuffer<Object>::compact(unsigned int keep) {
+    if (keep > data->position)throw out_of_range("Amount to keep can not exceed position");
+
+
+    data->bytesOffset = boundedShiftUnchecked(data->bytesOffset, (data->position - keep) * sizeof(Object),
+                                              (size_t) 0,
+                                              data->bytesCapacity);
+    data->position = keep;
+    data->limit = data->bytesCapacity / sizeof(Object);
+    data->isMarked = false;
+    return *this;
+}
+
+template<typename Object>
+SmartBuffer<Object> &SmartBuffer<Object>::flip() {
+    data->limit = data->position;
+    data->position = 0;
+    data->isMarked = false;
+    return *this;
+
+}
+
+template<typename Object>
+SmartBuffer<Object> &SmartBuffer<Object>::rewind() {
+    data->position = 0;
+    data->isMarked = false;
+    return *this;
+}
+
+template<typename Object>
+SmartBuffer<Object> &SmartBuffer<Object>::reset() {
+    if (!data->isMarked) throw logic_error("Mark is not set before reset call");
+    data->position = data->mark;
+    return *this;
+}
+
+template<typename Object>
+Object *SmartBuffer<Object>::getBuffer() {
+    return (Object *) data->buffer;
+}
+
+template<typename Object>
+unsigned int SmartBuffer<Object>::getBytesOffset() {
+    return data->bytesOffset;
+}
+
+template<typename Object>
+void SmartBuffer<Object>::getRaw(unsigned int off, void *buf, unsigned int len) {
+    _copyRaw(off, buf, len, true);
+}
+
+template<typename Object>
+void SmartBuffer<Object>::putRaw(unsigned int off, void *buf, unsigned int len) {
+    _copyRaw(off, buf, len);
+}
+
+template<typename Object>
+void SmartBuffer<Object>::_copyRaw(unsigned int bytesOff, void *buf, size_t len, bool isWriteTo) {
+    auto byteLimit = data->limit * sizeof(Object);
+    if (byteLimit < bytesOff || byteLimit - bytesOff < len) throw out_of_range("Can not write beyond the limit");
+
+    if (data->bytesCapacity - data->bytesOffset > bytesOff) {
+        auto realOff = data->bytesOffset + bytesOff;
+        auto amt = min(len, data->bytesCapacity - realOff);
+        memcpy(isWriteTo ? buf : data->buffer + realOff, isWriteTo ? data->buffer + realOff : buf, amt);
+        len -= amt;
+        buf = (char *) buf + amt;
+    }
+    if (len)
+        memcpy(isWriteTo ? buf : data->buffer, isWriteTo ? data->buffer : buf, len);
+}
 
 
 #endif //TUNSERVER_SMARTBUFFER_H

@@ -24,7 +24,7 @@ void Handler::handleUpStream() {
     tunnelSocket.setIn(tunnelRcv);
 #ifdef LOGGING
 #if _WIN32
-    ::printf("Handling up streams, tunnelSocket: %llu\n", tunnelSocket.getFd());
+    ::printf("Handling up streams, tunnelSocket: %llu\n", tunnelSocket.getFD());
 #else
     ::printf("Handling up streams, tunnelSocket: %d\n", tunnelSocket.getFD());
 #endif

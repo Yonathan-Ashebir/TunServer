@@ -5,6 +5,7 @@ set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
 set(RUNTIME_OUTPUT_DIRECTORY build_windows)
 set(COMMON_SOURCES)
+include(CTest)
 
 add_subdirectory(external/ArduinoJson)
 include_directories(external/ArduinoJson/src/ArduinoJson external/ArduinoJson/src)
@@ -26,11 +27,13 @@ include_directories(external/ArduinoJson/src/ArduinoJson external/ArduinoJson/sr
 add_subdirectory(external/stun)
 include_directories(external/stun/include)
 
+add_subdirectory(src/helpers)
+
 # Executables
 add_executable(tunServer src/handler/Main.cpp src/session/TCPSession.cpp src/handler/Handler.cpp src/packet/TCPPacket.cpp ${COMMON_SOURCES})
 
-add_executable(test src/Test.cpp src/packet/TCPPacket.cpp src/Test2.cpp ${COMMON_SOURCES})
-target_link_libraries(test PRIVATE stunmsg)
+add_executable(myTest src/Test.cpp src/packet/TCPPacket.cpp src/Test2.cpp ${COMMON_SOURCES})
+target_link_libraries(myTest PRIVATE stunmsg)
 
 add_executable(listener src/Listener.c)
 
@@ -60,8 +63,6 @@ target_link_libraries(stunLib PRIVATE stunmsg)
 add_executable(tunClient src/connection/Client.cpp ${COMMON_SOURCES})
 target_link_libraries(tunClient PRIVATE libcurl stunmsg)
 
-add_executable(smartBuffer src/helpers/buffer/SmartBufferTest.cpp ${COMMON_SOURCES})
-
 #Tests
 #add_test(NAME ConnectionBuilderTest COMMAND connectionBuilder)
 
@@ -74,7 +75,7 @@ if (WIN32)
     target_link_libraries(listener PRIVATE ${WIN32_NETWORK_LIBS})
     target_link_libraries(handlerTest PRIVATE ${WIN32_NETWORK_LIBS})
     target_link_libraries(stun PRIVATE ${WIN32_NETWORK_LIBS})
-    target_link_libraries(test PRIVATE ${WIN32_NETWORK_LIBS})
+    target_link_libraries(myTest PRIVATE ${WIN32_NETWORK_LIBS})
     target_link_libraries(stunLib PRIVATE ${WIN32_NETWORK_LIBS})
     target_link_libraries(tunClient PRIVATE ${WIN32_NETWORK_LIBS})
 else ()
