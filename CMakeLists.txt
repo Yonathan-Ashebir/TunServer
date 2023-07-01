@@ -63,6 +63,7 @@ target_link_libraries(stunLib PRIVATE stunmsg)
 add_executable(tunClient src/connection/Client.cpp ${COMMON_SOURCES})
 target_link_libraries(tunClient PRIVATE libcurl stunmsg)
 
+add_executable(TestDisposableTunnel src/tunnel/TestDisposableTunnel.cpp ${COMMON_SOURCES})
 #Tests
 #add_test(NAME ConnectionBuilderTest COMMAND connectionBuilder)
 
@@ -78,6 +79,7 @@ if (WIN32)
     target_link_libraries(myTest PRIVATE ${WIN32_NETWORK_LIBS})
     target_link_libraries(stunLib PRIVATE ${WIN32_NETWORK_LIBS})
     target_link_libraries(tunClient PRIVATE ${WIN32_NETWORK_LIBS})
+    target_link_libraries(TestDisposableTunnel PRIVATE ${WIN32_NETWORK_LIBS})
 else ()
 
 endif ()

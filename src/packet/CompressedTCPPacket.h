@@ -45,7 +45,11 @@ private:
     };
 public:
 
-    explicit CompressedTCPPacket(unsigned int size);
+    explicit CompressedTCPPacket();
+
+    explicit CompressedTCPPacket(unsigned int extra);
+
+    inline void swapEnds();
 
     inline void setPorts(unsigned short src, unsigned short dest);
 
@@ -99,9 +103,9 @@ public:
 
     [[nodiscard]] inline unsigned short getMSS() const;
 
-    [[nodiscard]] inline unsigned short getPayloadSize() const;
+    [[nodiscard]] inline unsigned short getTCPPayloadSize() const;
 
-    inline unsigned short copyPayloadTo(void *buff, unsigned short len) const;
+    inline unsigned short copyTCPPayloadTo(void *buf, unsigned short len) const;
 
     inline void makeSyn(unsigned int seq, unsigned int ack);
 
@@ -113,8 +117,6 @@ public:
 
     inline void makeNormal(unsigned int seqNo, unsigned int ackSeq);
 
-    inline void swapEnds();
-
     [[nodiscard]] inline unsigned int getSegmentLength() const;
 
 
@@ -124,20 +126,14 @@ private:
 
     [[nodiscard]] inline CompressedTCPH &getTCPHeader() const;
 
-    [[nodiscard]] inline unsigned short getTCPHeaderSize() const;
+    [[nodiscard]] static inline unsigned short getTCPHeaderSize();
 
 };
 
 CompressedTCPPacket::CompressedTCPH &CompressedTCPPacket::getTCPHeader() const {
-    if (data->remoteOffset > getIPHeaderSize()) {
-        if (data->remoteOffset < getIPHeaderSize() + getTCPHeaderSize())
-            throw logic_error("Invalid inner buffer capacity for tcp");
-        return *(CompressedTCPH *) data->mBuffer;
-    } else {
-        if (getIPHeaderSize() - data->remoteOffset + getTCPHeaderSize() > data->remoteBufferSize)
-            throw logic_error("Invalid remote buffer capacity for tcp");
-        return *(CompressedTCPH *) (data->mBuffer + getIPHeaderSize());
-    }
+    if (data->payloadOffset < getIPHeaderSize() + getTCPHeaderSize())
+        throw logic_error("Invalid available inner buffer size for tcp");
+    return *(CompressedTCPH *) data->mBuffer;
 }
 
 
@@ -251,28 +247,30 @@ unsigned char CompressedTCPPacket::getWindowShift() const {
 }
 
 unsigned short CompressedTCPPacket::getMSS() const {
-    return 2 * MIN_MSS;
+    return 2 * MIN_SS;
 }
 
-unsigned short CompressedTCPPacket::getPayloadSize() const {
+unsigned short CompressedTCPPacket::getTCPPayloadSize() const {
     return getLength() - getTCPHeaderSize() - getIPHeaderSize();
 }
 
-unsigned short CompressedTCPPacket::copyPayloadTo(void *buff, unsigned short len) const {
+unsigned short CompressedTCPPacket::copyTCPPayloadTo(void *buf, unsigned short len) const {
+    if (data->payloadOffset < getIPHeaderSize() + getTCPHeaderSize())
+        throw logic_error("Invalid available inner buffer size for tcp");
     unsigned short remaining = len;
-    if (data->remoteOffset > getIPHeaderSize() + getTCPHeaderSize()) {
-        unsigned short amt = min(remaining,
-                                 (unsigned short) (data->remoteOffset - getIPHeaderSize() - getTCPHeaderSize()));
-        memcpy(buff, data->mBuffer + getIPHeaderSize() + getTCPHeaderSize(), amt);
+    unsigned short amt = min(remaining,
+                             (unsigned short) (data->payloadOffset - getIPHeaderSize() - getTCPHeaderSize()));
+    memcpy(buf, data->mBuffer, amt);
+    remaining -= amt;
+    buf = (char *) buf + amt;
+
+    if (remaining) {
+        data->payload.rewind();
+        amt = min(remaining, (unsigned short) data->payload.available());
+        data->payload.get(buf, amt);
         remaining -= amt;
     }
-    if (remaining && data->remoteBuffer) {
-        unsigned short amt = min(remaining,
-                                 (unsigned short) (data->remoteBufferSize - data->remoteOffset + getIPHeaderSize() +
-                                                   getTCPHeaderSize()));
-        memcpy(buff, data->mBuffer + getIPHeaderSize() + getTCPHeaderSize(), amt);
-        remaining -= amt;
-    }
+
     return len - remaining;
 }
 
@@ -327,13 +325,13 @@ void CompressedTCPPacket::makeNormal(unsigned int seqNo, unsigned int ackSeq) {
 }
 
 inline unsigned int CompressedTCPPacket::getSegmentLength() const {
-    unsigned int result = getPayloadSize();
+    unsigned int result = getTCPPayloadSize();
     if (isSyn())result++;
     if (isFin())result++;
     return result;
 }
 
-unsigned short CompressedTCPPacket::getTCPHeaderSize() const {
+unsigned short CompressedTCPPacket::getTCPHeaderSize() {
     return sizeof(CompressedTCPH);
 }
 
@@ -362,12 +360,10 @@ unsigned short CompressedTCPPacket::getDestination() const {
     return getTCPHeader().destinationPort;
 }
 
-CompressedTCPPacket::CompressedTCPPacket(unsigned int size) : CompressedIPPacket(size) {
-    if (size != 0) {
-        if (size > getIPHeaderSize() && size < getIPHeaderSize() + getTCPHeaderSize())
-            throw invalid_argument("Invalid packet capacity for tcp");
-        getIPHeader().protocol = IPPROTO_TCP;
-    }
+CompressedTCPPacket::CompressedTCPPacket(unsigned int extra) : CompressedIPPacket(extra + getTCPHeaderSize()) {}
+
+CompressedTCPPacket::CompressedTCPPacket() : CompressedTCPPacket(0) {
+
 }
 
 

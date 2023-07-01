@@ -10,20 +10,24 @@
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 #pragma once
 
-#include "../Include.h"
+#include <memory>
+#include <utility>
 
-#define MIN_MSS 576
+#include "../Include.h"
+#include "../helpers/buffer/SmartBuffer.h"
+
+#define MIN_SS 576
 
 inline unsigned int toNetworkByteOrder(unsigned int i) {
     return htonl(i);
 }
 
 inline unsigned short toNetworkByteOrder(unsigned short i) {
-    return ntohs(i);
+    return htons(i);
 }
 
 inline unsigned int toHostByteOrder(unsigned int i) {
-    return htons(i);
+    return ntohl(i);
 }
 
 inline unsigned short toHostByteOrder(unsigned short i) {
@@ -42,35 +46,35 @@ private:
     struct Data {
         char *mBuffer{};
         unsigned short mBufferSize{};
-
-        char *remoteBuffer{};
-        unsigned short remoteBufferSize{};
-        unsigned short remoteOffset{};
-
-        unsigned int count{1};
+        shared_ptr<void> handle{};
+        SmartBuffer<char> payload{0};
+        unsigned short payloadOffset{mBufferSize};
     };
 
 public:
 
     CompressedIPPacket() : CompressedIPPacket(0) {};
 
-    inline ~CompressedIPPacket();
+    inline explicit CompressedIPPacket(unsigned short extra);
 
-    inline CompressedIPPacket(const CompressedIPPacket &old);
+    inline explicit CompressedIPPacket(void *buf, unsigned short size, shared_ptr<void> handle = nullptr,
+                                       SmartBuffer<char> payload = SmartBuffer<char>{0});
 
-    inline CompressedIPPacket(CompressedIPPacket &&old) noexcept;;
+    inline CompressedIPPacket(const CompressedIPPacket &old) = default;
 
-    inline CompressedIPPacket &operator=(const CompressedIPPacket &other);
+    inline CompressedIPPacket(CompressedIPPacket &&old) noexcept = default;
 
-    inline CompressedIPPacket &operator=(CompressedIPPacket &&other) noexcept;
+    inline CompressedIPPacket &operator=(const CompressedIPPacket &other) = default;
 
-    inline virtual void setRemoteBuffer(char *buf, unsigned short len, unsigned short offset);
+    inline CompressedIPPacket &operator=(CompressedIPPacket &&other) noexcept = default;
 
-    [[nodiscard]]inline char *getRemoteBuffer() const;
+    inline virtual void setPayload(SmartBuffer<char> &buf, unsigned short offset);
 
-    [[nodiscard]] inline unsigned short getRemoteBufferSize() const;
+    [[nodiscard]]inline SmartBuffer<char> &getPayload() const;
 
     [[nodiscard]] inline char *getBuffer() const;
+
+    [[nodiscard]] inline unsigned short getBufferSize() const;
 
     virtual bool isValid();
 
@@ -84,22 +88,18 @@ public:
 
     inline void setDestinationIP(unsigned int ip);
 
-    [[nodiscard]] inline unsigned short getBufferSize() const;
-
     [[nodiscard]] inline unsigned short getLength() const;
 
     [[nodiscard]] inline unsigned short getProtocol() const;
 
     inline void setProtocol(unsigned short proto);
 
-    inline unsigned short writeTo(void *buf, unsigned short size);
+    inline unsigned short writeTo(void *buf, unsigned short len);
 
     template<typename Object>
-    inline unsigned short writeToObject(Object &obj) {
-        writeTo(&obj, sizeof obj);
-    }
+    inline unsigned short writeToObject(Object &obj);
 
-    inline unsigned short readFrom(void *buf, unsigned short size);
+    inline unsigned short readFrom(void *buf, unsigned short len);
 
     template<typename Object>
     inline unsigned short readFromObject(Object &obj);
@@ -109,24 +109,13 @@ public:
     friend class DisposableTunnel;
 
 protected:
-    Data *data;
-
-    inline explicit CompressedIPPacket(unsigned short size);
+    shared_ptr<Data> data{};
 
     [[nodiscard]] inline CompressedIPH &getIPHeader() const;
 };
 
-CompressedIPPacket::CompressedIPPacket(unsigned short size) {
-    if (size && size < getIPHeaderSize())throw length_error("Invalid ip packet capacity");
-    data = new Data{size ? new char[getIPHeaderSize() + size] : nullptr, size, nullptr, 0, size};
-}
-
-
-CompressedIPPacket::~CompressedIPPacket() {
-    if (data && !--data->count) {
-        delete data->mBuffer;
-        delete data;
-    }
+CompressedIPPacket::CompressedIPPacket(unsigned short extra) {
+    data = std::make_shared<Data>(Data{new char[getIPHeaderSize() + extra], getIPHeaderSize() + extra});
 }
 
 
@@ -160,61 +149,21 @@ unsigned short CompressedIPPacket::getIPHeaderSize() {
 }
 
 CompressedIPPacket::CompressedIPH &CompressedIPPacket::getIPHeader() const {
-    if (data->remoteOffset) return *(CompressedIPH *) data->mBuffer;
-    else return *(CompressedIPH *) data->remoteBuffer;
+    return *(CompressedIPH *) data->mBuffer;
 }
 
 unsigned short CompressedIPPacket::getLength() const {
-    return data->remoteOffset + data->remoteBufferSize;
+    return data->payloadOffset + data->payload.getLimit();
 }
 
-CompressedIPPacket::CompressedIPPacket(const CompressedIPPacket &old) : data(old.data) {
-    data->count++;
+void CompressedIPPacket::setPayload(SmartBuffer<char> &buf, unsigned short offset) {
+    if (offset > data->mBufferSize || offset < getIPHeaderSize())throw out_of_range("Invalid remote buffer offset");
+    data->payloadOffset = offset;
+    data->payload = buf;
 }
 
-CompressedIPPacket &CompressedIPPacket::operator=(CompressedIPPacket &&other) noexcept {
-    if (&other != this) {
-        if (data && !--data->count) {
-            delete data->mBuffer;
-            delete data;
-        }
-        data = other.data;
-        other.data = nullptr;
-    }
-}
-
-CompressedIPPacket &CompressedIPPacket::operator=(const CompressedIPPacket &other) {
-    if (&other != this) {
-        if (data && !--data->count) {
-            delete data->mBuffer;
-            delete data;
-        }
-        data = other.data;
-        data->count++;
-    }
-}
-
-CompressedIPPacket::CompressedIPPacket(CompressedIPPacket &&old) noexcept: data(old.data) {
-    old.data = nullptr;
-}
-
-void CompressedIPPacket::setRemoteBuffer(char *buf, unsigned short len, unsigned short offset) {
-    if (offset > data->mBufferSize)throw out_of_range("Invalid remote buffer offset");
-    if (!data->mBuffer && len < getIPHeaderSize())
-        throw length_error(
-                "Remote buffer capacity of ip packet with no internal buffer can not be less than " +
-                to_string(getIPHeaderSize()));
-    data->remoteOffset = offset;
-    data->remoteBuffer = buf;
-    data->remoteBufferSize = len;
-}
-
-char *CompressedIPPacket::getRemoteBuffer() const {
-    return data->remoteBuffer;
-}
-
-unsigned short CompressedIPPacket::getRemoteBufferSize() const {
-    return data->remoteBufferSize;
+SmartBuffer<char> &CompressedIPPacket::getPayload() const {
+    return data->payload;
 }
 
 char *CompressedIPPacket::getBuffer() const {
@@ -229,36 +178,52 @@ void CompressedIPPacket::setProtocol(unsigned short proto) {
     getIPHeader().protocol = proto;
 }
 
-unsigned short CompressedIPPacket::writeTo(void *buf, unsigned short size) {
-    auto remaining = size;
-    if (data->mBuffer) {
-        auto amt = min(data->remoteOffset, (unsigned short) remaining);
-        memcpy(buf, data->mBuffer, amt);
+unsigned short CompressedIPPacket::writeTo(void *buf, unsigned short len) {
+    auto remaining = len;
+
+    auto amt = min(data->payloadOffset, (unsigned short) remaining);
+    memcpy(buf, data->mBuffer, amt);
+    remaining -= amt;
+    buf = (char *) buf + amt;
+
+    if (remaining) {
+        data->payload.rewind();
+        amt = min(remaining, (unsigned short) data->payload.available());
+        data->payload.get(buf, amt);
         remaining -= amt;
     }
-    if (remaining && data->remoteBuffer) {
-        auto amt = min(data->remoteBufferSize, (unsigned short) remaining);
-        memcpy((char *) buf + data->remoteOffset, data->remoteBuffer,
-               amt);
-        remaining -= amt;
-    }
-    return size - remaining;
+
+    return len - remaining;
 }
 
-unsigned short CompressedIPPacket::readFrom(void *buf, unsigned short size) {
-    auto remaining = size;
-    if (data->mBuffer) {
-        auto amt = min(data->remoteOffset, (unsigned short) remaining);
-        memcpy(data->mBuffer, buf, amt);
+unsigned short CompressedIPPacket::readFrom(void *buf, unsigned short len) {
+    auto remaining = len;
+
+    auto amt = min(data->payloadOffset, (unsigned short) remaining);
+    memcpy(data->mBuffer, buf, amt);
+    remaining -= amt;
+    buf = (char *) buf + amt;
+
+
+    if (remaining) {
+        data->payload.rewind();
+        amt = min(remaining, (unsigned short) data->payload.available());
+        data->payload.put(buf, amt);
         remaining -= amt;
     }
-    if (remaining && data->remoteBuffer) {
-        auto amt = min(data->remoteBufferSize, (unsigned short) remaining);
-        memcpy(data->remoteBuffer, (char *) buf + data->remoteOffset,
-               amt);
-        remaining -= amt;
-    }
-    return size - remaining;
+
+    return len - remaining;
+}
+
+CompressedIPPacket::CompressedIPPacket(void *buf, unsigned short size, shared_ptr<void> handle,
+                                       SmartBuffer<char> payload) : data(
+        new Data{(char *) buf, size, std::move(handle), payload}) {
+    if (size < getIPHeaderSize())throw length_error("Invalid ip packet size");
+}
+
+template<typename Object>
+unsigned short CompressedIPPacket::writeToObject(Object &obj) {
+    writeTo(&obj, sizeof obj);
 }
 
 template<typename Object>

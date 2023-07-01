@@ -59,9 +59,8 @@ public:
     template<typename Object2=Object>
     SmartBuffer &get(Object2 objs[], unsigned int len, unsigned int off);
 
-    template<typename Object2=Object>
     unsigned int
-    manipulate(function<unsigned int(Object2 *buf, unsigned int len)> &&writer);
+    manipulate(function<unsigned int(char *, unsigned int)> &&writer);
 
     /*Manipulate bytes of at most <b>max</b> no of elements starting from <b>off</b>. Returns number of bytes manipulated.*/
     unsigned int
@@ -129,7 +128,7 @@ public:
     unsigned int getBytesOffset();
 
 private:
-    struct Data { // NOLINT(cppcoreguidelines-pro-type-member-init)
+    struct Data { // NOLINT(cppcoreguidelines-pro-receiveType-member-init)
         laterinit char *buffer{};
         laterinit size_t bytesCapacity; /*In bytes*/
         shared_ptr<void> releaseBuffer{buffer};//todo: test intel-sense () vs {}
@@ -232,8 +231,7 @@ SmartBuffer<Object> &SmartBuffer<Object>::get(Object2 *objs, unsigned int len, u
 }
 
 template<typename Object>
-template<typename Object2>
-unsigned int SmartBuffer<Object>::manipulate(function<unsigned int(Object2 *, unsigned int)> &&writer) {
+unsigned int SmartBuffer<Object>::manipulate(function<unsigned int(char *, unsigned int)> &&writer) {
     auto mani = manipulate(writer, data->position);
     data->position += mani;
     return mani;

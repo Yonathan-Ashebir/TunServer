@@ -100,7 +100,7 @@ protected:
         auto count = FormatMessage(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM,
                                    nullptr, err, 0, buf, 0,
                                    nullptr);
-        if (count == 0) throw BadException("Could not format socket error description");
+        if (count == 0) return "Could not format socket error description";
         string result(buf);
         LocalFree(buf);
         return result;

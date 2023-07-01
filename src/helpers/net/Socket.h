@@ -124,6 +124,8 @@ public:
 
     inline void connect(void *addr, socklen_t len);
 
+    inline void connect(unsigned short port);
+
     template<class Addr>
     inline void connect(Addr &addr);
 
@@ -132,6 +134,8 @@ public:
     inline void connect(const string &ip, unsigned short port);
 
     inline void connectToHost(const char *hostname, unsigned short port);
+
+    inline void connectToHost(const string hostname, unsigned short port);
 
     inline int trySend(const void *buf, int len, int options = 0);
 
@@ -143,10 +147,20 @@ public:
     template<class Buffer>
     inline int sendObject(Buffer &buf, int options = 0);
 
+    template<class Buffer>
+    inline int sendObject(Buffer &&buf, int options = 0) {
+        sendObject(buf, options);
+    }
+
     inline int sendIgnoreWouldBlock(const void *buf, int len, int options = 0);
 
     template<class Buffer>
     inline int sendObjectIgnoreWouldBlock(Buffer &buf, int options = 0);
+
+    template<class Buffer>
+    inline int sendObjectIgnoreWouldBlock(Buffer &&buf, int options = 0) {
+        sendObjectIgnoreWouldBlock(buf, options);
+    }
 
     inline int tryReceive(void *buf, int len, int options = 0);
 

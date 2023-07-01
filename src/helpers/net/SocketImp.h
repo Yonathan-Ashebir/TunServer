@@ -256,6 +256,16 @@ int InetSocket::receiveIgnoreWouldBlock(void *buf, int len, int options) {
     return total;
 }
 
+void InetSocket::connectToHost(const string hostname, unsigned short port) {
+    connect(hostname.c_str(), port);
+}
+
+void InetSocket::connect(unsigned short port) {
+    sockaddr_storage addr{};
+    initialize(addr, static_cast<sa_family_t>(data->domain), "127.0.0.1", port);
+    connect(addr);
+}
+
 template<class Buffer>
 int InetSocket::receiveObjectIgnoreWouldBlock(Buffer &buf, int options) {
     return receiveIgnoreWouldBlock(&buf, sizeof buf, options);

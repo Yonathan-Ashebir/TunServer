@@ -1104,13 +1104,19 @@ void testTypeComparition() {
     testTypeComparitionHelper<blah2>();
 }
 
+void testMutex() {
+    mutex mtx;
+//    mtx.lock();
+    unique_lock<mutex> lock(mtx); //blocks
+    unique_lock<mutex> lock2(mtx); //blocks
+//    mtx.lock(); //blocks
+    printf("Test passed\n");
+}
+
 int main() {
     initPlatform();
-    unsigned a = 2;
-    unsigned b = 3;
-    auto res = -a;
-    printf("%ud\n", res < 0);
-
+    TCPSocket sock;
+    sock.connect(1234);
 }
 
 #pragma clang diagnostic pop
