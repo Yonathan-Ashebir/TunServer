@@ -15,6 +15,7 @@ struct __attribute__((packed)) StunRequest {
             transaction_id_[i] = rand() % 256;
         }
     }
+
     const int16_t stun_message_type_ = htons(kBindingRequest);
     const int16_t message_length_ = htons(0x0000);
     const int32_t magic_cookie_ = htonl(0x2112A442);
@@ -36,10 +37,10 @@ struct IPAndPort {
 };
 
 // Converts a host name into an IP address.
-std::string HostnameToIP(std::string const& hostname) {
+std::string HostnameToIP(std::string const &hostname) {
     char ip[100];
     struct addrinfo hints, *servinfo, *p;
-    struct sockaddr_in* h;
+    struct sockaddr_in *h;
     int rv;
     memset(&hints, 0, sizeof(hints));
     hints.ai_family = AF_UNSPEC;
@@ -49,7 +50,7 @@ std::string HostnameToIP(std::string const& hostname) {
         return "";
     }
     for (p = servinfo; p != NULL; p = p->ai_next) {
-        h = (struct sockaddr_in*)p->ai_addr;
+        h = (struct sockaddr_in *) p->ai_addr;
         strcpy(ip, inet_ntoa(h->sin_addr));
     }
     freeaddrinfo(servinfo);
@@ -57,10 +58,10 @@ std::string HostnameToIP(std::string const& hostname) {
 }
 
 // Returns true on success
-bool PerformStunRequest(std::string const& stun_server_ip,
+bool PerformStunRequest(std::string const &stun_server_ip,
                         short stun_server_port,
                         short local_port,
-                        IPAndPort& ip_and_port) {
+                        IPAndPort &ip_and_port) {
     struct sockaddr_in servaddr;
     struct sockaddr_in localaddr;
 
@@ -78,7 +79,7 @@ bool PerformStunRequest(std::string const& stun_server_ip,
     localaddr.sin_family = AF_INET;
     localaddr.sin_port = htons(local_port);
 
-    int err = bind(sockfd, (struct sockaddr*)&localaddr, sizeof(localaddr));
+    int err = bind(sockfd, (struct sockaddr *) &localaddr, sizeof(localaddr));
     if (err == -1) {
         printf("bind error\n");
         return false;
@@ -86,14 +87,14 @@ bool PerformStunRequest(std::string const& stun_server_ip,
 
     printf("Sending STUN request to %s:%d\n", stun_server_ip.c_str(),
            stun_server_port);
-    err = sendto(sockfd, (char *)&stun_request, sizeof(stun_request), 0,
-                 (struct sockaddr*)&servaddr, sizeof(servaddr));
+    err = sendto(sockfd, (char *) &stun_request, sizeof(stun_request), 0,
+                 (struct sockaddr *) &servaddr, sizeof(servaddr));
     if (err == -1) {
         printf("sendto error\n");
         return false;
     }
 
-    err = recvfrom(sockfd, (char *)&stun_response, sizeof(stun_response), 0, NULL, 0);
+    err = recvfrom(sockfd, (char *) &stun_response, sizeof(stun_response), 0, NULL, 0);
     if (err == -1) {
         printf("recvfrom error\n");
         return false;
@@ -105,16 +106,16 @@ bool PerformStunRequest(std::string const& stun_server_ip,
             printf("incorrect message type\n");
             return false;
         }
-        auto const& attributes = stun_response.attributes_;
+        auto const &attributes = stun_response.attributes_;
         int16_t attributes_length =
                 std::min<int16_t>(htons(stun_response.message_length_),
                                   stun_response.attributes_.size());
         int i = 0;
         while (i < attributes_length) {
-            auto attribute_type = htons(*(int16_t*)(&attributes[i]));
-            auto attribute_length = htons(*(int16_t*)(&attributes[i + 2]));
+            auto attribute_type = htons(*(int16_t *) (&attributes[i]));
+            auto attribute_length = htons(*(int16_t *) (&attributes[i + 2]));
             if (attribute_type == kXorMappedAddress) {
-                int16_t port = ntohs(*(int16_t*)(&attributes[i + 6]));
+                int16_t port = ntohs(*(int16_t *) (&attributes[i + 6]));
                 port ^= 0x2112;
                 std::string ip = std::to_string(attributes[i + 8] ^ 0x21) + "." +
                                  std::to_string(attributes[i + 9] ^ 0x12) + "." +
@@ -134,7 +135,7 @@ bool PerformStunRequest(std::string const& stun_server_ip,
     return true;
 }
 
-int main(int argc, char* argv[]) {
+int main(int argc, char *argv[]) {
     std::string ip = HostnameToIP("stun.1und1.de");
     IPAndPort ip_and_port;
     bool stun_request_succesfull =

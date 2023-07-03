@@ -226,12 +226,12 @@ CompressedIPPacket::CompressedIPPacket(void *buf, unsigned short size, shared_pt
 
 template<typename Object>
 unsigned short CompressedIPPacket::writeToObject(Object &obj) {
-    writeTo(&obj, sizeof obj);
+    return writeTo(&obj, sizeof obj);
 }
 
 template<typename Object>
 unsigned short CompressedIPPacket::readFromObject(Object &obj) {
-    readFrom(&obj, sizeof obj);
+    return readFrom(&obj, sizeof obj);
 }
 
 

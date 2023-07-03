@@ -130,10 +130,6 @@ using namespace std;
 
 
 inline void printError(const char *msg, int err = errno) {
-    //todo: finalize
-#ifdef _WIN32
-    if (err == 0)err = WSAGetLastError();
-#endif
     ::printf(ERROR_FORMAT, msg, err,
              getErrorName(err), std::system_category().message(err).c_str());
 }

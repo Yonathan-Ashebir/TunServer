@@ -148,9 +148,7 @@ public:
     inline int sendObject(Buffer &buf, int options = 0);
 
     template<class Buffer>
-    inline int sendObject(Buffer &&buf, int options = 0) {
-        sendObject(buf, options);
-    }
+    inline int sendObject(Buffer &&buf, int options = 0);
 
     inline int sendIgnoreWouldBlock(const void *buf, int len, int options = 0);
 
@@ -158,9 +156,7 @@ public:
     inline int sendObjectIgnoreWouldBlock(Buffer &buf, int options = 0);
 
     template<class Buffer>
-    inline int sendObjectIgnoreWouldBlock(Buffer &&buf, int options = 0) {
-        sendObjectIgnoreWouldBlock(buf, options);
-    }
+    inline int sendObjectIgnoreWouldBlock(Buffer &&buf, int options = 0);
 
     inline int tryReceive(void *buf, int len, int options = 0);
 

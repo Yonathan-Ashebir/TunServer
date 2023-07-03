@@ -267,6 +267,16 @@ void InetSocket::connect(unsigned short port) {
 }
 
 template<class Buffer>
+int InetSocket::sendObjectIgnoreWouldBlock(Buffer &&buf, int options) {
+    return sendObjectIgnoreWouldBlock(buf, options);
+}
+
+template<class Buffer>
+int InetSocket::sendObject(Buffer &&buf, int options) {
+    return sendObject(buf, options);
+}
+
+template<class Buffer>
 int InetSocket::receiveObjectIgnoreWouldBlock(Buffer &buf, int options) {
     return receiveIgnoreWouldBlock(&buf, sizeof buf, options);
 }
@@ -553,7 +563,7 @@ void UDPSocket::setUDPOption(int option, Val &val) {
     setOption(IPPROTO_UDP, option, val);
 }
 
-//todo: moved socket protection
+
 #endif //TUNSERVER_SOCKETIMP_H
 
 #pragma clang diagnostic pop

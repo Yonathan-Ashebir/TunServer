@@ -17,7 +17,7 @@ private:
 public:
     SmartBuffer(Object *buf, unsigned int size, shared_ptr<void> release = nullptr, bool bytesSize = false);;
 
-    /* Generate a smart buffer with backing array of bytesCapacity @param todo bytesCapacity*/
+    /* Generate a smart buffer with backing array of size <i>size<i>*/
     explicit SmartBuffer(unsigned int size);
 
     SmartBuffer(SmartBuffer &other) = default;
@@ -27,9 +27,6 @@ public:
     SmartBuffer &operator=(const SmartBuffer &other) = default;
 
     SmartBuffer &operator=(SmartBuffer &&other) noexcept = default;
-
-
-/*TODO: comparison*/
 
 /** Generates a new smart buffer that is backed by the same array, with independent bytesOffset (set to the same value), position, mark, and limit. */
     SmartBuffer copy();
@@ -41,7 +38,6 @@ public:
     template<typename Object2=Object>
     Object2 get();
 
-    /*TODO: may be a pointer to the buffer it self is better?*/
     template<typename Object2=Object>
     Object2 get(unsigned int off);
 
@@ -131,7 +127,7 @@ private:
     struct Data { // NOLINT(cppcoreguidelines-pro-receiveType-member-init)
         laterinit char *buffer{};
         laterinit size_t bytesCapacity; /*In bytes*/
-        shared_ptr<void> releaseBuffer{buffer};//todo: test intel-sense () vs {}
+        shared_ptr<void> releaseBuffer{buffer};
         size_t bytesOffset{}; /*In bytes*/
         unsigned int position{}; /*In Objs*/
         bool isMarked{};
@@ -423,8 +419,8 @@ void SmartBuffer<Object>::putRaw(unsigned int off, void *buf, unsigned int len) 
 
 template<typename Object>
 void SmartBuffer<Object>::_copyRaw(unsigned int bytesOff, void *buf, size_t len, bool isWriteTo) {
-    auto byteLimit = data->limit * sizeof(Object);
-    if (byteLimit < bytesOff || byteLimit - bytesOff < len) throw out_of_range("Can not write beyond the limit");
+    auto bytesLimit = data->limit * sizeof(Object);
+    if (bytesLimit < bytesOff || bytesLimit - bytesOff < len) throw out_of_range("Can not write beyond the limit");
 
     if (data->bytesCapacity - data->bytesOffset > bytesOff) {
         auto realOff = data->bytesOffset + bytesOff;

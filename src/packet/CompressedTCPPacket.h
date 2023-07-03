@@ -21,7 +21,7 @@ private:
         unsigned short destinationPort{};
         unsigned int sequenceNumber{};
         unsigned int acknowledgementNumber{};
-#ifdef __LITTLE_ENDIAN
+#if __BYTE_ORDER == __LITTLE_ENDIAN
         bool fin: 1{};
         bool syn: 1{};
         bool rst: 1{};
@@ -30,18 +30,21 @@ private:
         bool urg: 1{};
         bool ece: 1{};
         bool cwr: 1{};
+#elif __BYTE_ORDER == __BIG_ENDIAN
+        bool cwr: 1{};
+        bool ece: 1{};
+        bool urg: 1{};
+        bool ack: 1{};
+        bool psh: 1{};
+        bool rst: 1{};
+        bool syn: 1{};
+        bool fin: 1{};
 #else
-        bool cwr: 1{};
-        bool ece: 1{};
-        bool urg: 1{};
-        bool ack: 1{};
-        bool psh: 1{};
-        bool rst: 1{};
-        bool syn: 1{};
-        bool fin: 1{};
+# error        "Please fix <bits/endian.h>"
 #endif
         unsigned short window{};
         unsigned char windowShift{};
+        unsigned char mss{};
     };
 public:
 
@@ -133,13 +136,13 @@ private:
 CompressedTCPPacket::CompressedTCPH &CompressedTCPPacket::getTCPHeader() const {
     if (data->payloadOffset < getIPHeaderSize() + getTCPHeaderSize())
         throw logic_error("Invalid available inner buffer size for tcp");
-    return *(CompressedTCPH *) data->mBuffer;
+    return *(CompressedTCPH *) (data->mBuffer + getIPHeaderSize());
 }
 
 
 void CompressedTCPPacket::swapEnds() {
     auto iph = getIPHeader();
-    auto tcph = getTCPHeader();
+    auto &tcph = getTCPHeader();
 
     auto src = iph.sourceIP;
     auto srcPort = tcph.sourcePort;
@@ -154,12 +157,12 @@ void CompressedTCPPacket::swapEnds() {
 
 
 void CompressedTCPPacket::setSequenceNumber(unsigned int seq) {
-    auto tcph = getTCPHeader();
+    auto &tcph = getTCPHeader();
     tcph.sequenceNumber = toNetworkByteOrder(seq);
 }
 
 void CompressedTCPPacket::setAcknowledgmentNumber(unsigned int ack) {
-    auto tcph = getTCPHeader();
+    auto &tcph = getTCPHeader();
     tcph.acknowledgementNumber = toNetworkByteOrder(ack);
     if (ack) tcph.ack = true;
 }
@@ -184,12 +187,12 @@ void CompressedTCPPacket::setPushFlag(bool isPush) {
 
 void CompressedTCPPacket::setWindowSize(unsigned short window, unsigned char shift) {
     setWindowScale(shift);
-    getTCPHeader().window = htons(window);
+    setWindowSize(window);
 }
 
 void CompressedTCPPacket::setWindowSize(unsigned short window) {
-    auto tcph = getTCPHeader();
-    tcph.window = htons(window);
+    auto &tcph = getTCPHeader();
+    tcph.window = toNetworkByteOrder(window);
 }
 
 void CompressedTCPPacket::setWindowScale(unsigned char shift) {
@@ -198,7 +201,7 @@ void CompressedTCPPacket::setWindowScale(unsigned char shift) {
 }
 
 void CompressedTCPPacket::setMSS(unsigned short size) {
-//todo
+    getTCPHeader().mss = size >> 8;
 }
 
 
@@ -212,34 +215,34 @@ unsigned int CompressedTCPPacket::getAcknowledgmentNumber() const {
 }
 
 bool CompressedTCPPacket::isSyn() const {
-    auto tcph = getTCPHeader();
+    auto &tcph = getTCPHeader();
     return tcph.syn;
 }
 
 bool CompressedTCPPacket::isAck() const {
-    auto tcph = getTCPHeader();
+    auto &tcph = getTCPHeader();
     return tcph.ack;
 }
 
 
 bool CompressedTCPPacket::isFin() const {
-    auto tcph = getTCPHeader();
+    auto &tcph = getTCPHeader();
     return tcph.fin;
 }
 
 bool CompressedTCPPacket::isReset() const {
-    auto tcph = getTCPHeader();
+    auto &tcph = getTCPHeader();
     return tcph.rst;
 }
 
 bool CompressedTCPPacket::isPush() const {
-    auto tcph = getTCPHeader();
+    auto &tcph = getTCPHeader();
     return tcph.psh;
 }
 
 unsigned short CompressedTCPPacket::getWindowSize() const {
-    auto tcph = getTCPHeader();
-    return ntohs(tcph.window);
+    auto &tcph = getTCPHeader();
+    return toHostByteOrder(tcph.window);
 }
 
 unsigned char CompressedTCPPacket::getWindowShift() const {
@@ -247,7 +250,7 @@ unsigned char CompressedTCPPacket::getWindowShift() const {
 }
 
 unsigned short CompressedTCPPacket::getMSS() const {
-    return 2 * MIN_SS;
+    return getTCPHeader().mss << 8;
 }
 
 unsigned short CompressedTCPPacket::getTCPPayloadSize() const {
@@ -267,7 +270,7 @@ unsigned short CompressedTCPPacket::copyTCPPayloadTo(void *buf, unsigned short l
     if (remaining) {
         data->payload.rewind();
         amt = min(remaining, (unsigned short) data->payload.available());
-        data->payload.get(buf, amt);
+        data->payload.get((char *) buf, amt);
         remaining -= amt;
     }
 
@@ -278,7 +281,7 @@ void CompressedTCPPacket::makeSyn(unsigned int seq, unsigned int ack) {
     setSequenceNumber(seq);
     setAcknowledgmentNumber(ack);
 
-    auto tcph = getTCPHeader();
+    auto &tcph = getTCPHeader();
     tcph.syn = true;
     tcph.rst = false;
     tcph.fin = false;
@@ -288,7 +291,7 @@ void CompressedTCPPacket::makeFin(unsigned int seq, unsigned int ack) {
     setSequenceNumber(seq);
     setAcknowledgmentNumber(ack);
 
-    auto tcph = getTCPHeader();
+    auto &tcph = getTCPHeader();
     tcph.syn = false;
     tcph.rst = false;
     tcph.fin = true;
@@ -298,7 +301,7 @@ void CompressedTCPPacket::makeResetAck(unsigned int ack) {
     setAcknowledgmentNumber(ack);
     setSequenceNumber(0);
 
-    auto tcph = getTCPHeader();
+    auto &tcph = getTCPHeader();
     tcph.syn = false;
     tcph.rst = true;
     tcph.fin = false;
@@ -308,7 +311,7 @@ void CompressedTCPPacket::makeResetSeq(unsigned int seq) {
     setSequenceNumber(seq);
     setAcknowledgmentNumber(0);
 
-    auto tcph = getTCPHeader();
+    auto &tcph = getTCPHeader();
     tcph.syn = false;
     tcph.rst = true;
     tcph.fin = false;
@@ -336,11 +339,11 @@ unsigned short CompressedTCPPacket::getTCPHeaderSize() {
 }
 
 void CompressedTCPPacket::setSourcePort(unsigned short port) {
-    getTCPHeader().sourcePort = port;
+    getTCPHeader().sourcePort = toNetworkByteOrder(port);
 }
 
 void CompressedTCPPacket::setDestinationPort(unsigned short port) {
-    getTCPHeader().destinationPort = port;
+    getTCPHeader().destinationPort = toNetworkByteOrder(port);
 }
 
 void CompressedTCPPacket::setPorts(unsigned short src, unsigned short dest) {
@@ -353,11 +356,11 @@ void CompressedTCPPacket::setAckFlag(bool isAck) {
 }
 
 unsigned short CompressedTCPPacket::getSourcePort() const {
-    return getTCPHeader().sourcePort;
+    return toHostByteOrder(getTCPHeader().sourcePort);
 }
 
 unsigned short CompressedTCPPacket::getDestination() const {
-    return getTCPHeader().destinationPort;
+    return toHostByteOrder(getTCPHeader().destinationPort);
 }
 
 CompressedTCPPacket::CompressedTCPPacket(unsigned int extra) : CompressedIPPacket(extra + getTCPHeaderSize()) {}
