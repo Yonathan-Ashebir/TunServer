@@ -94,12 +94,12 @@ public:
 
     inline void setProtocol(unsigned short proto);
 
-    inline unsigned short writeTo(void *buf, unsigned short len);
+    inline unsigned short writeTo(void *buf, unsigned short len, unsigned short off = 0);
 
     template<typename Object>
     inline unsigned short writeToObject(Object &obj);
 
-    inline unsigned short readFrom(void *buf, unsigned short len);
+    inline unsigned short readFrom(void *buf, unsigned short len, unsigned short off = 0);
 
     template<typename Object>
     inline unsigned short readFromObject(Object &obj);
@@ -115,7 +115,8 @@ protected:
 };
 
 CompressedIPPacket::CompressedIPPacket(unsigned short extra) {
-    data = std::make_shared<Data>(Data{new char[getIPHeaderSize() + extra], getIPHeaderSize() + extra});
+    data = std::make_shared<Data>(
+            Data{new char[getIPHeaderSize() + extra]{}, static_cast<unsigned short>(getIPHeaderSize() + extra)});
 }
 
 
@@ -178,37 +179,39 @@ void CompressedIPPacket::setProtocol(unsigned short proto) {
     getIPHeader().protocol = proto;
 }
 
-unsigned short CompressedIPPacket::writeTo(void *buf, unsigned short len) {
+unsigned short CompressedIPPacket::writeTo(void *buf, unsigned short len, unsigned short off) {
     auto remaining = len;
 
-    auto amt = min(data->payloadOffset, (unsigned short) remaining);
-    memcpy(buf, data->mBuffer, amt);
-    remaining -= amt;
-    buf = (char *) buf + amt;
+    if (off < data->payloadOffset) {
+        auto amt = min((unsigned short) (data->payloadOffset - off), remaining);
+        memcpy(buf, data->mBuffer + off, amt);
+        buf = (char *) buf + amt;
+        remaining -= amt;
+    }
 
     if (remaining) {
-        data->payload.rewind();
-        amt = min(remaining, (unsigned short) data->payload.available());
-        data->payload.get(buf, amt);
+        auto amt = min(remaining, (unsigned short) data->payload.available());
+        data->payload.get((char *) buf, amt, off); //IMP: can be compiled without a cast to char *
         remaining -= amt;
     }
 
     return len - remaining;
 }
 
-unsigned short CompressedIPPacket::readFrom(void *buf, unsigned short len) {
+unsigned short CompressedIPPacket::readFrom(void *buf, unsigned short len, unsigned short off) {
     auto remaining = len;
 
-    auto amt = min(data->payloadOffset, (unsigned short) remaining);
-    memcpy(data->mBuffer, buf, amt);
-    remaining -= amt;
-    buf = (char *) buf + amt;
-
+    if (off < data->payloadOffset) {
+        auto amt = min((unsigned short) (data->payloadOffset - off), (unsigned short) remaining);
+        memcpy(data->mBuffer + off, buf, amt);
+        remaining -= amt;
+        buf = (char *) buf + amt;
+    }
 
     if (remaining) {
         data->payload.rewind();
-        amt = min(remaining, (unsigned short) data->payload.available());
-        data->payload.put(buf, amt);
+        auto amt = min(remaining, (unsigned short) data->payload.available());
+        data->payload.put((char *) buf, amt);
         remaining -= amt;
     }
 

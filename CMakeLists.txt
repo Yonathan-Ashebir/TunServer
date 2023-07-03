@@ -64,6 +64,7 @@ add_executable(tunClient src/connection/Client.cpp ${COMMON_SOURCES})
 target_link_libraries(tunClient PRIVATE libcurl stunmsg)
 
 add_executable(TestDisposableTunnel src/tunnel/TestDisposableTunnel.cpp ${COMMON_SOURCES})
+add_test(NAME TestDisposableTunnel COMMAND TestDisposableTunnel)
 #Tests
 #add_test(NAME ConnectionBuilderTest COMMAND connectionBuilder)
 

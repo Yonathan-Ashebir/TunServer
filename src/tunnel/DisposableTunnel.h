@@ -18,12 +18,15 @@ public:
         char *buffer;
         unsigned int size;
         unsigned int offset;
-        unsigned int writeNext{offset};
-        bool completed{};
+        unsigned int remaining;
 
-        UnsentData(char *buf, unsigned int size) : UnsentData(buf, size, 0) {};
+        friend class DisposableTunnel;
 
-        UnsentData(char *buf, unsigned int size, unsigned int off) : buffer(buf), size(size), offset(off) {}
+    public:
+        UnsentData(char *buf, unsigned int size, unsigned int off, unsigned int rem) : buffer(buf), size(size),
+                                                                                       offset(off), remaining(rem) {}
+
+        [[nodiscard]] unsigned int getRemaining() const { return remaining; }
     };
 
     using OnNewTunnelResponse = function<void(sockaddr_storage &)>;
@@ -36,62 +39,107 @@ public:
                                                                        data(new Data(size, rcv, snd, err)) {
         socket.setIn(rcv);
         socket.setIn(err);
-        //todo: set sock timeout
-        //todo: handle socket errors
+        data->lastSuccessfulSendTime = chrono::steady_clock::now();
     };
 
     bool writePacket(CompressedIPPacket &packet) override {
-        if (1 + sizeof(DataSegment) + packet.getLength() > sendAvailable()) {
+        if (!isOpen())return false;
+        auto totalSize = 1 + sizeof(DataSegment) + packet.getLength() +
+                         1; //The last '1' is for the space reserved by ping segment
+        auto currentBufferSize = data->sendWrappedAround ? data->lastPacketSent - data->sendUser : data->size -
+                                                                                                   data->sendUser;
+        auto available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
+                                                                       data->lastPacketSent;
+        if (totalSize > available) {
             flushPackets();
-            if (1 + sizeof(DataSegment) + packet.getLength() > sendAvailable()) return false;
+            currentBufferSize = data->sendWrappedAround ? data->lastPacketSent - data->sendUser : data->size -
+                                                                                                  data->sendUser;
+            available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
+                                                                      data->lastPacketSent;
+            if (totalSize > available)return false;
         }
-        data->sendBuffer[data->sendNext++] = DATA_SEGMENT;
+        data->incompleteSend = true;
 
+        if (!currentBufferSize) {
+            data->sendWrappedAround = true;
+            currentBufferSize = data->lastPacketSent;
+            data->sendUser = 0;
+        }
+        data->sendBuffer[data->sendUser++] = DATA_SEGMENT;
+        currentBufferSize--;
+
+
+        auto amt = min((unsigned int) sizeof(DataSegment), currentBufferSize);
         DataSegment segment{toNetworkByteOrder(packet.getLength())};
-        memcpy(data->sendBuffer + data->sendNext, &segment, sizeof(DataSegment));
-        data->sendNext += sizeof(DataSegment);
+        memcpy(data->sendBuffer + data->sendUser, &segment, amt);
+        auto remaining = sizeof(DataSegment) - amt;
+        if (remaining) {
+            data->sendWrappedAround = true;
+            currentBufferSize = data->lastPacketSent;
+            memcpy(data->sendBuffer, (char *) &segment + amt, remaining);
+            data->sendUser = remaining;
+        } else {
+            data->sendUser += sizeof(DataSegment);
+            currentBufferSize -= sizeof(DataSegment);
+        }
 
-        data->sendNext += packet.writeTo(data->sendBuffer + data->sendNext, sendAvailable());
+        remaining = packet.getLength();
+        amt = packet.writeTo(data->sendBuffer + data->sendUser, currentBufferSize);
+        remaining -= amt;
+        if (remaining) {
+            data->sendWrappedAround = true;
+            data->sendUser = remaining;
+            packet.writeTo(data->sendBuffer, remaining);
+        } else data->sendUser += packet.getLength();
         socket.setIn(data->sendSet);
         return true;
     };
 
     void flushPackets() {
-        if (!isOpen() || data->written == data->sendNext)return;
+        if (!isOpen() || (!data->sendWrappedAround && data->sendNext == data->sendUser))return;
         auto sock = getTCPSocket();
         try {
-            auto res = sock.sendIgnoreWouldBlock(data->sendBuffer + data->written,
-                                                 (int) (data->sendNext - data->written));
+            auto currentBufferSize = data->sendWrappedAround ? data->size - data->sendNext : data->sendUser -
+                                                                                             data->sendNext;
+            auto res = sock.sendIgnoreWouldBlock(data->sendBuffer + data->sendNext,
+                                                 (int) currentBufferSize);
             if (res > 0) {
-                data->written += res;
                 data->lastSuccessfulSendTime = chrono::steady_clock::now();
-                advanceLastPacketSent();
-                if (data->written == data->sendNext) {
-                    data->incompleteSend = false;
-                    data->written = 0;
-                    data->sendNext = 0;
-                    data->lastPacketSent = 0;
-                    socket.unsetFrom(data->sendSet);
-                    return;
-                } else {
-                    data->incompleteSend = true;
+                data->sendNext += res;
+            }
+            if (res < currentBufferSize) {
+                if (res > 0)
+                    advanceLastPacketSent();
+                return;
+            }
+
+            if (data->sendWrappedAround) {
+                res = sock.sendIgnoreWouldBlock(data->sendBuffer,
+                                                (int) data->sendUser);
+                if (res > 0) {
+                    data->sendNext = res;
                 }
-            } else {
-                if (data->incompleteSend) {
-                    if (chrono::steady_clock::now() - data->lastSuccessfulSendTime > sendTimeout) {
-                        close();
-                    }
-                } else {
-                    data->incompleteSend = true;
+                if (res < data->sendUser) {
+                    if (res > 0)
+                        advanceLastPacketSent();
+                    return;
                 }
             }
-        } catch (exception &e) {
+            advanceLastPacketSent();
+
+            data->incompleteSend = false;
+            data->lastPacketSent = data->sendUser = data->sendNext = 0;
+            data->sendWrappedAround = false;
+            socket.unsetFrom(data->sendSet);
+            return;
+        } catch (SocketException &e) {
 
 #ifdef LOGGING
             cout << "Tunnel socket flush failed with error: \n   what(): " << e.what() << endl;
 #endif
             close();
         }
+
     }
 
     vector<CompressedIPPacket> readPackets(unsigned int max = numeric_limits<unsigned int>::max()) {
@@ -100,11 +148,11 @@ public:
 
         bool wrappedAround = false;
         unsigned int dispatchedStart;
+        if (data->receiveType == 0) assert(data->receiveNext == data->receiveDispatched);
         if (data->receiveNext == data->receiveDispatched) {
             dispatchedStart = 0;
             data->receiveNext = 0;
             data->receiveDispatched = 0;
-            data->receiveRemaining = 0;
         } else {
             dispatchedStart = data->receiveDispatched;
         }
@@ -120,6 +168,7 @@ public:
                         if (wrappedAround)return result;
                         wrappedAround = true;
                         data->receiveNext = 0;
+                        data->receiveDispatched = 0;
                         if (dispatchedStart < 1)return result;
                         currentBufferSize = dispatchedStart;
                     }
@@ -127,14 +176,16 @@ public:
                         auto res = sock.receiveIgnoreWouldBlock(data->receiveBuffer + data->receiveNext, 1);
                         if (res > 0) {
                             data->lastSuccessfulReceiveTime = chrono::steady_clock::now();
+                            char t = data->receiveBuffer[data->receiveDispatched];
                             data->receiveNext++;
-                            char t = data->receiveBuffer[data->receiveDispatched++];
+                            data->receiveDispatched++;
+                            currentBufferSize--;
                             data->incompleteReceive = true;
                             data->receiveType = t;
                             unsigned int headerSize{};
                             if (t == DATA_SEGMENT)headerSize = sizeof(DataSegment);
                             else if (t == NEW_TUNNEL_RESPONSE_SEGMENT)
-                                headerSize = sizeof(NewTunnelResponseSegment) + 16;
+                                headerSize = sizeof(NewTunnelResponseSegment) + sizeof(in6_addr);
                             else if (t == DELETE_TUNNEL_SEGMENT)
                                 headerSize = sizeof(DeleteTunnelSegment);
 
@@ -142,10 +193,11 @@ public:
                                 if (wrappedAround)return result;
                                 wrappedAround = true;
                                 data->receiveNext = 0;
+                                data->receiveDispatched = 0;
                                 if (dispatchedStart < headerSize)return result;
                             }
                         } else return result;
-                    } catch (exception &e) {
+                    } catch (SocketException &e) {
 #ifdef LOGGING
                         cout << "Tunnel's read packet failed with error\n   what(): " << e.what() << endl;
 #endif
@@ -155,8 +207,17 @@ public:
                     break;
                 }
                 case PING_SEGMENT: {
-                    data->sendBuffer[data->sendNext] = PING_RESPONSE_SEGMENT;
-                    if (data->size - data->sendNext > 1)data->sendNext++;
+                    auto currentBufferSize = data->sendWrappedAround ? data->lastPacketSent - data->sendUser :
+                                             data->size -
+                                             data->sendUser;
+                    auto available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
+                                                                                   data->lastPacketSent;
+                    if (!available) break;
+                    if (!currentBufferSize) {
+                        data->sendWrappedAround = true;
+                        data->sendUser = 0;
+                    }
+                    data->sendBuffer[data->sendUser++] = PING_RESPONSE_SEGMENT;
                     data->receiveType = 0;
                     data->incompleteReceive = false;
                     break;
@@ -168,38 +229,35 @@ public:
                     break;
                 }
                 case DATA_SEGMENT: {
-                    auto alreadyRead = data->receiveNext - data->receiveDispatched;
                     if (data->receiveRemaining == 0) {
                         try {
-                            auto remaining = sizeof(DataSegment) - alreadyRead;
+                            auto remaining = sizeof(DataSegment) - data->receiveNext + data->receiveDispatched;
                             auto res = getTCPSocket().receiveIgnoreWouldBlock(data->receiveBuffer + data->receiveNext,
                                                                               (int) remaining);
-                            if (res > 0) {
-                                data->lastSuccessfulReceiveTime = chrono::steady_clock::now();
-                                data->receiveNext += res;
-                                if (res == remaining) {
-                                    auto size = toHostByteOrder(((DataSegment *) (data->receiveBuffer +
-                                                                                  data->receiveDispatched))->size);
-                                    if (isValidPacketSize(size)) {
-                                        unsigned int currentBufferSize = wrappedAround ? dispatchedStart -
-                                                                                         data->receiveNext :
-                                                                         data->size -
-                                                                         data->receiveNext;
-                                        if (currentBufferSize < size) {
-                                            if (wrappedAround)return result;
-                                            wrappedAround = true;
-                                            data->receiveNext = 0;
-                                            if (dispatchedStart < size)return result;
-                                        }
-                                        data->receiveRemaining = size;
-                                    } else {
-                                        close();
-                                        return result;
-                                    }
-                                } else
-                                    return result;
+                            if (res < 1)return result;
+                            data->lastSuccessfulReceiveTime = chrono::steady_clock::now();
+                            data->receiveNext += res;
+
+                            if (res != remaining) return result;
+                            auto size = toHostByteOrder(((DataSegment *) (data->receiveBuffer +
+                                                                          data->receiveDispatched))->size);
+                            if (!isValidPacketSize(size)) {
+                                close();
+                                return result;
                             }
-                        } catch (exception &e) {
+                            data->receiveDispatched += sizeof(DataSegment);
+                            data->receiveRemaining = size;
+
+                            unsigned int currentBufferSize = wrappedAround ? dispatchedStart - data->receiveNext :
+                                                             data->size - data->receiveNext;
+                            if (currentBufferSize < size) {
+                                if (wrappedAround)return result;
+                                wrappedAround = true;
+                                data->receiveNext = 0;
+                                data->receiveDispatched = 0;
+                                if (dispatchedStart < size)return result;
+                            }
+                        } catch (SocketException &e) {
 #ifdef LOGGING
                             cout << "Tunnel's read packet failed with error\n   what(): " << e.what() << endl;
 #endif
@@ -210,23 +268,18 @@ public:
                         try {
                             auto res = getTCPSocket().receiveIgnoreWouldBlock(data->receiveBuffer + data->receiveNext,
                                                                               (int) data->receiveRemaining);
-                            if (res > 0) {
-                                data->lastSuccessfulReceiveTime = chrono::steady_clock::now();
-                                data->receiveNext += res;
-                                if (res == data->receiveRemaining) {
-                                    result.emplace_back(data->receiveBuffer + data->receiveDispatched,
-                                                        data->receiveNext - data->receiveDispatched);
-                                    data->receiveType = 0;
-                                    data->receiveDispatched = data->receiveNext;
-                                    data->receiveRemaining = 0;
-                                    data->incompleteReceive = false;
-                                    if (result.size() == max)return result;
-                                } else {
-                                    data->receiveRemaining -= res;
-                                    return result;
-                                }
-                            }
-                        } catch (exception &e) {
+                            if (res < 1)return result;
+                            data->lastSuccessfulReceiveTime = chrono::steady_clock::now();
+                            data->receiveNext += res;
+                            data->receiveRemaining -= res;
+                            if (data->receiveRemaining) return result;
+                            result.emplace_back(data->receiveBuffer + data->receiveDispatched,
+                                                data->receiveNext - data->receiveDispatched);
+                            data->receiveType = 0;
+                            data->receiveDispatched = data->receiveNext;
+                            data->incompleteReceive = false;
+                            if (result.size() == max)return result;
+                        } catch (SocketException &e) {
 #ifdef LOGGING
                             cout << "Tunnel's read packet failed with error\n   what(): " << e.what() << endl;
 #endif
@@ -243,30 +296,27 @@ public:
                     break;
                 }
                 case NEW_TUNNEL_RESPONSE_SEGMENT: {
-                    auto alreadyRead = data->receiveNext - data->receiveDispatched;
-                    if (alreadyRead < sizeof(NewTunnelResponseSegment)) {
+                    if (data->receiveRemaining == 0) {
                         try {
-                            auto remaining = sizeof(NewTunnelResponseSegment) - alreadyRead;
+                            auto remaining =
+                                    sizeof(NewTunnelResponseSegment) - data->receiveNext + data->receiveDispatched;
                             auto res = getTCPSocket().receiveIgnoreWouldBlock(data->receiveBuffer + data->receiveNext,
                                                                               (int) remaining);
-                            if (res > 0) {
-                                data->lastSuccessfulReceiveTime = chrono::steady_clock::now();
-                                data->receiveNext += res;
-                                if (res == remaining) {
-                                    auto family = ((NewTunnelResponseSegment *) (data->receiveBuffer +
-                                                                                 data->receiveDispatched))->family;
-                                    if (family == AF_INET)
-                                        data->receiveRemaining = 4;
-                                    else if (family == AF_INET6)
-                                        data->receiveRemaining = 16;
-                                    else {
-                                        close();
-                                        return result;
-                                    }
-                                } else
-                                    return result;
+                            if (res < 0) return result;
+                            data->lastSuccessfulReceiveTime = chrono::steady_clock::now();
+                            data->receiveNext += res;
+                            if (res != remaining) return result;
+                            auto family = ((NewTunnelResponseSegment *) (data->receiveBuffer +
+                                                                         data->receiveDispatched))->family;
+                            if (family == AF_INET)
+                                data->receiveRemaining = sizeof(in_addr);
+                            else if (family == AF_INET6)
+                                data->receiveRemaining = sizeof(in6_addr);
+                            else {
+                                close();
+                                return result;
                             }
-                        } catch (exception &e) {
+                        } catch (SocketException &e) {
 #ifdef LOGGING
                             cout << "Tunnel's read packet failed with error\n   what(): " << e.what() << endl;
 #endif
@@ -277,38 +327,34 @@ public:
                         try {
                             auto res = getTCPSocket().receiveIgnoreWouldBlock(data->receiveBuffer + data->receiveNext,
                                                                               (int) data->receiveRemaining);
-                            if (res > 0) {
-                                data->lastSuccessfulReceiveTime = chrono::steady_clock::now();
-                                data->receiveNext += res;
-                                if (res == data->receiveRemaining) {
-                                    /*IMP: the tunnel should validate the address*/
-                                    auto &header = *(NewTunnelResponseSegment *) (data->receiveBuffer +
-                                                                                  data->receiveDispatched);
-                                    sockaddr_storage address{};
-                                    if (header.family == AF_INET) {
-                                        auto ain = reinterpret_cast<sockaddr_in *>(&address);
-                                        ain->sin_port = header.port;
-                                        memcpy(&ain->sin_addr, data->receiveBuffer + data->receiveDispatched +
-                                                               sizeof(NewTunnelResponseSegment), 4);
-                                    } else {
-                                        /*Since we know it is ipv6 for sure, if not ipv4*/
-                                        auto ain = reinterpret_cast<sockaddr_in6 *>(&address);
-                                        ain->sin6_port = header.port;
-                                        memcpy(&ain->sin6_addr, data->receiveBuffer + data->receiveDispatched +
-                                                                sizeof(NewTunnelResponseSegment), 16);
-                                    }
-                                    data->onNewTunnelResponse(address);
+                            if (res < 1) return result;
+                            data->lastSuccessfulReceiveTime = chrono::steady_clock::now();
+                            data->receiveNext += res;
+                            data->receiveRemaining -= res;
+                            if (data->receiveRemaining) return result;
 
-                                    data->receiveType = 0;
-                                    data->receiveDispatched = data->receiveNext;
-                                    data->receiveRemaining = 0;
-                                    data->incompleteReceive = false;
-                                } else {
-                                    data->receiveRemaining -= res;
-                                    return result;
-                                }
+                            /*IMP: the tunnel should validate the address*/
+                            auto &header = *(NewTunnelResponseSegment *) (data->receiveBuffer +
+                                                                          data->receiveDispatched);
+                            sockaddr_storage address{header.family};
+                            if (header.family == AF_INET) {
+                                auto ain = reinterpret_cast<sockaddr_in *>(&address);
+                                ain->sin_port = header.port;
+                                memcpy(&ain->sin_addr, data->receiveBuffer + data->receiveDispatched +
+                                                       sizeof(NewTunnelResponseSegment), sizeof(in_addr));
+                            } else {
+                                /*Since we know it is ipv6 for sure, if not ipv4*/
+                                auto ain = reinterpret_cast<sockaddr_in6 *>(&address);
+                                ain->sin6_port = header.port;
+                                memcpy(&ain->sin6_addr, data->receiveBuffer + data->receiveDispatched +
+                                                        sizeof(NewTunnelResponseSegment), sizeof(in6_addr));
                             }
-                        } catch (exception &e) {
+                            data->onNewTunnelResponse(address);
+
+                            data->receiveType = 0;
+                            data->receiveDispatched = data->receiveNext;
+                            data->incompleteReceive = false;
+                        } catch (SocketException &e) {
 #ifdef LOGGING
                             cout << "Tunnel's read packet failed with error\n   what(): " << e.what() << endl;
 #endif
@@ -324,20 +370,18 @@ public:
                         auto remaining = sizeof(DeleteTunnelSegment) - alreadyRead;
                         auto res = getTCPSocket().receiveIgnoreWouldBlock(data->receiveBuffer + data->receiveNext,
                                                                           (int) remaining);
-                        if (res > 0) {
-                            data->lastSuccessfulReceiveTime = chrono::steady_clock::now();
-                            data->receiveNext += res;
-                            if (res == remaining) {
-                                auto &header = *reinterpret_cast<DeleteTunnelSegment *>(data->receiveBuffer +
-                                                                                        data->receiveDispatched);
-                                data->onDeleteTunnelRequest(toHostByteOrder(header.id));
+                        if (res < 1) return result;
+                        data->lastSuccessfulReceiveTime = chrono::steady_clock::now();
+                        data->receiveNext += res;
+                        if (res != remaining) return result;
+                        auto &header = *reinterpret_cast<DeleteTunnelSegment *>(data->receiveBuffer +
+                                                                                data->receiveDispatched);
+                        data->onDeleteTunnelRequest(toHostByteOrder(header.id));
 
-                                data->receiveType = 0;
-                                data->receiveDispatched = data->receiveNext;
-                                data->incompleteReceive = false;
-                            } else return result;
-                        }
-                    } catch (exception &e) {
+                        data->receiveType = 0;
+                        data->receiveDispatched = data->receiveNext;
+                        data->incompleteReceive = false;
+                    } catch (SocketException &e) {
 #ifdef LOGGING
                         cout << "Tunnel's read packet failed with error\n   what(): " << e.what() << endl;
 #endif
@@ -348,7 +392,7 @@ public:
                 }
                 default: {
 #ifdef LOGGING
-                    cout << "Encountered odd segment type: " << data->receiveType << endl;
+                    cout << "Encountered an odd segment type: " << data->receiveType << endl;
 #endif
                     close();
                     return result;
@@ -357,15 +401,11 @@ public:
         }
     }
 
-    bool readPacket(CompressedIPPacket &packet)
-
-    override {
+    bool readPacket(CompressedIPPacket &packet) override {
+        if (!isOpen())
+            return false;
         auto res = readPackets(1);
-        if (res.
-
-                empty()
-
-                )
+        if (res.empty())
             return false;
         packet = res.at(0);
         return true;
@@ -376,64 +416,216 @@ public:
     }
 
     void close() {
-        if (!isOpen()) {
+        if (isOpen()) {
             data->isOpen = false;
             socket.unsetFrom(data->receiveSet);
             socket.unsetFrom(data->sendSet);
             socket.unsetFrom(data->errorSet);
             socket.close();
+
+            if (data->sendNext != data->sendUser) {
+                UnsentData unsentData{data->sendBuffer, data->size, data->lastPacketSent,
+                                      (data->sendWrappedAround) ? data->size - data->lastPacketSent + data->sendUser :
+                                      data->sendUser - data->lastPacketSent};
+                data->onUnsentData(unsentData);
+#ifdef LOGGING
+                cout << "The Socket was closed and " << unsentData.getRemaining() << " bytes were not resent" << endl;
+#endif
+            }
         }
+    }
+
+    void reset(TCPSocket &sock) {
+        reset(sock, data->receiveSet, data->sendSet, data->errorSet);
+    }
+
+    void reset(TCPSocket &sock, fd_set &rcv, fd_set &snd, fd_set &err) {
+        close();
+        socket = sock;
+        data->receiveSet = rcv;
+        data->sendSet = snd;
+        data->errorSet = err;
+
+        data->sendUser = data->sendNext = data->lastPacketSent = 0;
+        data->sendWrappedAround = data->incompleteSend = false;
+        data->lastSuccessfulSendTime = chrono::steady_clock::now();
+
+        data->receiveNext = data->receiveDispatched = data->receiveRemaining = 0;
+        data->receiveType = 0;
+        data->incompleteReceive = false;
+
+        data->hasSentPing = false;
+
+        data->isOpen = true;
     }
 
     void checkStatus() {
         if (!isOpen())return;
         if (data->incompleteSend && chrono::steady_clock::now() - data->lastSuccessfulSendTime > sendTimeout) {
+#ifdef LOGGING
+            cout << "Tunnel's send timed-out" << endl;
+#endif
             close();
             return;
         }
-        if (data->hasSentPing) {
+
+        if (data->incompleteReceive && chrono::steady_clock::now() - data->lastSuccessfulReceiveTime > receiveTimeout) {
 #ifdef LOGGING
-            cout << "Tunnel ping timed out" << endl;
+            cout << "Tunnel's receive timed out" << endl;
 #endif
-            if (chrono::steady_clock::now() - data->lastPingTime > pingTimeout)close();
+            close();
+            return;
+        }
+
+        if (data->hasSentPing) {
+            if (chrono::steady_clock::now() - data->lastPingTime > pingTimeout) {
+#ifdef LOGGING
+                cout << "Tunnel ping timed out" << endl;
+#endif
+                close();
+            }
         } else {
             /*send ping*/
-            if (data->size - data->sendNext > 0) {
-                data->sendBuffer[data->sendNext++] = PING_SEGMENT;
+            auto currentBufferSize = data->sendWrappedAround ? data->lastPacketSent - data->sendUser : data->size -
+                                                                                                       data->sendUser;
+            auto available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
+                                                                           data->lastPacketSent;
+            if (available < 2) return;
+            if (!currentBufferSize) {
+                data->sendWrappedAround = true;
+                data->sendUser = 0;
             }
+            data->sendBuffer[data->sendUser++] = PING_SEGMENT;
+            data->incompleteSend = true;
+            data->hasSentPing = true;
+            data->lastPingTime = chrono::steady_clock::now();
         }
     }
 
     bool sendNewTunnelRequest() {
-        if (!isOpen() || sendAvailable() < 1)return false;
-        data->sendBuffer[data->sendNext++] = NEW_TUNNEL_REQUEST_SEGMENT;
+        if (!isOpen())return false;
+        auto totalSize = 2;
+        auto currentBufferSize = data->sendWrappedAround ? data->lastPacketSent - data->sendUser : data->size -
+                                                                                                   data->sendUser;
+        auto available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
+                                                                       data->lastPacketSent;
+        if (totalSize > available) {
+            flushPackets();
+            currentBufferSize = data->sendWrappedAround ? data->lastPacketSent - data->sendUser : data->size -
+                                                                                                  data->sendUser;
+            available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
+                                                                      data->lastPacketSent;
+            if (totalSize > available)return false;
+        }
+        data->incompleteSend = true;
+
+        if (!currentBufferSize) {
+            data->sendWrappedAround = true;
+            data->sendUser = 0;
+        }
+
+        data->sendBuffer[data->sendUser++] = NEW_TUNNEL_REQUEST_SEGMENT;
         return true;
     }
 
     bool sendNewTunnelResponse(sockaddr_storage &addr) {
         if (!isOpen())return false;
+
         if (addr.ss_family == AF_INET) {
-            if (sendAvailable() < sizeof(NewTunnelResponseSegment) + 4 + 1)return false;
-            data->sendBuffer[data->sendNext++] = NEW_TUNNEL_RESPONSE_SEGMENT;
+            auto totalSize = 1 + sizeof(NewTunnelResponseSegment) + sizeof(in_addr) + 1;
+            auto currentBufferSize = data->sendWrappedAround ? data->lastPacketSent - data->sendUser : data->size -
+                                                                                                       data->sendUser;
+            auto available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
+                                                                           data->lastPacketSent;
+            if (totalSize > available) {
+                flushPackets();
+                currentBufferSize = data->sendWrappedAround ? data->lastPacketSent - data->sendUser : data->size -
+                                                                                                      data->sendUser;
+                available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
+                                                                          data->lastPacketSent;
+                if (totalSize > available)return false;
+            }
+            data->incompleteSend = true;
 
+            if (!currentBufferSize) {
+                data->sendWrappedAround = true;
+                data->sendUser = 0;
+            }
+            data->sendBuffer[data->sendUser++] = NEW_TUNNEL_RESPONSE_SEGMENT;
+            currentBufferSize--;
+
+            auto amt = min(currentBufferSize, (unsigned int) sizeof(NewTunnelResponseSegment));
             auto addrIn = reinterpret_cast<sockaddr_in *>(&addr);
-            NewTunnelResponseSegment response{addrIn->sin_port, addr.ss_family};
-            memcpy(data->sendBuffer + data->sendNext, &response, sizeof(NewTunnelResponseSegment));
-            data->sendNext += sizeof(NewTunnelResponseSegment);
+            NewTunnelResponseSegment header{addrIn->sin_port, addr.ss_family};
+            memcpy(data->sendBuffer + data->sendUser, &header, amt);
+            if (sizeof(NewTunnelResponseSegment) > amt) {
+                auto remaining = sizeof(NewTunnelResponseSegment) - amt;
+                data->sendUser = remaining;
+                data->sendWrappedAround = true;
+                currentBufferSize = data->lastPacketSent;
+                memcpy(data->sendBuffer, (char *) &header + amt, remaining);
+            } else {
+                data->sendUser += sizeof(NewTunnelResponseSegment);
+                currentBufferSize -= sizeof(NewTunnelResponseSegment);
+            }
 
-            memcpy(data->sendBuffer + data->sendNext, &addrIn->sin_addr, 4);
-            data->sendNext += 4;
+            amt = min(currentBufferSize, (unsigned int) sizeof(in_addr));
+            memcpy(data->sendBuffer + data->sendUser, &addrIn->sin_addr, amt);
+            if (amt < sizeof(in_addr)) {
+                auto remaining = sizeof(in_addr) - amt;
+                data->sendUser = remaining;
+                data->sendWrappedAround = true;
+                memcpy(data->sendBuffer, (char *) &addrIn->sin_addr + amt, remaining);
+            } else {
+                data->sendUser += sizeof(NewTunnelResponseSegment);
+            }
         } else if (addr.ss_family == AF_INET6) {
-            if (sendAvailable() < sizeof(NewTunnelResponseSegment) + 16 + 1)return false;
-            data->sendBuffer[data->sendNext++] = NEW_TUNNEL_RESPONSE_SEGMENT;
+            auto totalSize = 1 + sizeof(NewTunnelResponseSegment) + sizeof(in6_addr) + 1;
+            auto currentBufferSize = data->sendWrappedAround ? data->lastPacketSent - data->sendUser : data->size -
+                                                                                                       data->sendUser;
+            auto available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
+                                                                           data->lastPacketSent;
+            if (totalSize > available) {
+                flushPackets();
+                currentBufferSize = data->sendWrappedAround ? data->lastPacketSent - data->sendUser : data->size -
+                                                                                                      data->sendUser;
+                available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
+                                                                          data->lastPacketSent;
+                if (totalSize > available)return false;
+            }
 
+            if (!currentBufferSize) {
+                data->sendWrappedAround = true;
+                data->sendUser = 0;
+            }
+            data->sendBuffer[data->sendUser++] = NEW_TUNNEL_RESPONSE_SEGMENT;
+            currentBufferSize--;
+
+            auto amt = min(currentBufferSize, (unsigned int) sizeof(NewTunnelResponseSegment));
             auto addrIn6 = reinterpret_cast<sockaddr_in6 *>(&addr);
             NewTunnelResponseSegment response{addrIn6->sin6_port, addr.ss_family};
-            memcpy(data->sendBuffer + data->sendNext, &response, sizeof(NewTunnelResponseSegment));
-            data->sendNext += sizeof(NewTunnelResponseSegment);
+            memcpy(data->sendBuffer + data->sendUser, &response, amt);
+            if (sizeof(NewTunnelResponseSegment) > amt) {
+                auto remaining = sizeof(NewTunnelResponseSegment) - amt;
+                data->sendUser = remaining;
+                data->sendWrappedAround = true;
+                currentBufferSize = data->lastPacketSent;
+                memcpy(data->sendBuffer, (char *) &response + amt, remaining);
+            } else {
+                data->sendUser += sizeof(NewTunnelResponseSegment);
+                currentBufferSize -= sizeof(NewTunnelResponseSegment);
+            }
 
-            memcpy(data->sendBuffer + data->sendNext, &addrIn6->sin6_addr, 16);
-            data->sendNext += 16;
+            amt = min(currentBufferSize, (unsigned int) sizeof(in6_addr));
+            memcpy(data->sendBuffer + data->sendUser, &addrIn6->sin6_addr, sizeof(in6_addr));
+            if (amt < sizeof(in6_addr)) {
+                auto remaining = sizeof(in6_addr) - amt;
+                data->sendUser = remaining;
+                data->sendWrappedAround = true;
+                memcpy(data->sendBuffer, (char *) &addrIn6->sin6_addr + amt, remaining);
+            } else {
+                data->sendUser += sizeof(NewTunnelResponseSegment);
+            }
         } else {
             throw invalid_argument("Unknown address family");
         }
@@ -441,12 +633,133 @@ public:
     }
 
     bool sendDeleteTunnelRequest(unsigned short id) {
-        if (sendAvailable() < sizeof(DeleteTunnelSegment) + 4)return false;
+        if (!isOpen())return false;
+
+        auto totalSize = 1 + sizeof(DeleteTunnelSegment) + 1;
+        auto currentBufferSize = data->sendWrappedAround ? data->lastPacketSent - data->sendUser : data->size -
+                                                                                                   data->sendUser;
+        auto available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
+                                                                       data->lastPacketSent;
+        if (totalSize > available) {
+            flushPackets();
+            currentBufferSize = data->sendWrappedAround ? data->lastPacketSent - data->sendUser : data->size -
+                                                                                                  data->sendUser;
+            available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
+                                                                      data->lastPacketSent;
+            if (totalSize > available)return false;
+        }
+        data->incompleteSend = true;
+
+        if (!currentBufferSize) {
+            data->sendWrappedAround = true;
+            data->sendUser = 0;
+        }
+        data->sendBuffer[data->sendUser++] = DELETE_TUNNEL_SEGMENT;
+        currentBufferSize--;
+
+        auto amt = min(currentBufferSize, (unsigned int) sizeof(DeleteTunnelSegment));
         DeleteTunnelSegment segment{toNetworkByteOrder(id)};
-        data->sendBuffer[data->sendNext++] = DELETE_TUNNEL_SEGMENT;
-        memcpy(data->sendBuffer + data->sendNext, &segment, sizeof(DeleteTunnelSegment));
-        data->sendNext += sizeof(DeleteTunnelSegment);
+        memcpy(data->sendBuffer + data->sendUser, &segment, amt);
+        if (sizeof(DeleteTunnelSegment) > amt) {
+            auto remaining = sizeof(DeleteTunnelSegment) - amt;
+            data->sendUser = remaining;
+            data->sendWrappedAround = true;
+            memcpy(data->sendBuffer, (char *) &segment + amt, remaining);
+        } else {
+            data->sendUser += sizeof(DeleteTunnelSegment);
+        }
+
         return true;
+    }
+
+    unsigned int sendUnsentData(UnsentData &unsentData) {
+        if (!isOpen())return 0;
+        if (!unsentData.remaining)return 0;
+
+        auto currentBufferSize = data->sendWrappedAround ? data->lastPacketSent - data->sendUser : data->size -
+                                                                                                   data->sendUser;
+        auto available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
+                                                                       data->lastPacketSent;
+        unsigned int result{};
+        while (unsentData.remaining) {
+            if (unsentData.offset == unsentData.size) unsentData.offset = 0;
+            auto t = unsentData.buffer[unsentData.offset];
+            unsigned int totalSize = 1;
+            switch (t) {
+                case NEW_TUNNEL_RESPONSE_SEGMENT: {
+                    auto amt = min((unsigned int) sizeof(NewTunnelResponseSegment),
+                                   unsentData.size - unsentData.offset - 1);
+                    NewTunnelResponseSegment header{};
+                    memcpy(&header, unsentData.buffer + unsentData.offset + 1, amt);
+                    if (amt < sizeof(NewTunnelResponseSegment)) {
+                        memcpy((char *) &header + amt, unsentData.buffer, sizeof(NewTunnelResponseSegment) - amt);
+                    }
+                    totalSize += sizeof(NewTunnelResponseSegment) +
+                                 (header.family == AF_INET ? sizeof(in_addr) : sizeof(in6_addr));
+                    break;
+                }
+                case DATA_SEGMENT: {
+                    auto amt = min((unsigned int) sizeof(DataSegment),
+                                   unsentData.size - unsentData.offset - 1);
+                    DataSegment header{};
+                    memcpy(&header, unsentData.buffer + unsentData.offset + 1, amt);
+                    if (amt < sizeof(DataSegment)) {
+                        memcpy((char *) &header + amt, unsentData.buffer, sizeof(DataSegment) - amt);
+                    }
+                    totalSize += sizeof(DataSegment) + toHostByteOrder(header.size);
+                    break;
+                }
+                case DELETE_TUNNEL_SEGMENT: {
+                    totalSize += sizeof(DeleteTunnelSegment);
+                    break;
+                }
+                case PING_SEGMENT:
+                case PING_RESPONSE_SEGMENT:
+                case NEW_TUNNEL_REQUEST_SEGMENT:
+                    break;
+                default:
+                    throw logic_error("Unknown segment type: " + to_string(t));
+            }
+            if (totalSize > available)return result;
+            data->incompleteSend = true;
+
+            unsigned int total = min(totalSize, unsentData.size - unsentData.offset);
+            auto amt = min(total, currentBufferSize);
+            memcpy(data->sendBuffer + data->sendUser, unsentData.buffer + unsentData.offset, amt);
+            unsentData.offset += amt;
+            if (amt < total) {
+                auto remaining = total - amt;
+                data->sendUser = remaining;
+                data->sendWrappedAround = true;
+                currentBufferSize = data->lastPacketSent;
+                memcpy(data->sendBuffer, unsentData.buffer + unsentData.offset, remaining);
+                unsentData.offset += remaining;
+            } else {
+                data->sendUser += total;
+                currentBufferSize -= total;
+            }
+
+            if (total < totalSize) {
+                total = totalSize - total;
+                amt = min(total, currentBufferSize);
+                memcpy(data->sendBuffer + data->sendUser, unsentData.buffer, amt);
+                if (amt < total) {
+                    auto remaining = total - amt;
+                    data->sendUser = remaining;
+                    data->sendWrappedAround = true;
+                    currentBufferSize = data->lastPacketSent;
+                    memcpy(data->sendBuffer, unsentData.buffer + amt, remaining);
+                } else {
+                    data->sendUser += total;
+                    currentBufferSize -= total;
+                }
+                unsentData.offset = total;
+            }
+
+            unsentData.remaining -= totalSize;
+            result += totalSize;
+        }
+        return result;
     }
 
     void setId(unsigned id) {
@@ -470,7 +783,7 @@ public:
     }
 
     void setOnNewTunnelRequest(OnNewTunnelRequest callback) {
-        data->onNewTunnelRequest = callback;
+        data->onNewTunnelRequest = std::move(callback);
     }
 
     OnDeleteTunnelRequest &getOnDeleteTunnelRequest() {
@@ -482,19 +795,11 @@ public:
     }
 
     void setOnUnsentData(OnUnsentData callback) {
-        data->onUnsentData = callback;
+        data->onUnsentData = std::move(callback);
     }
 
     OnUnsentData &getOnUnsentData() {
         return data->onUnsentData;
-    }
-
-    inline unsigned int sendAvailable() {
-        return data->size - data->sendNext - 1; // The '1' is reserved for pinging back
-    }
-
-    inline bool receiveAvailable() {
-        return data->size - data->receiveNext;
     }
 
 private:
@@ -502,11 +807,12 @@ private:
     struct Data {
         unsigned int size;
         char *sendBuffer = new char[size]{};
-        unsigned int written{};
-        unsigned int lastPacketSent{};
+        unsigned int sendUser{};
         unsigned int sendNext{};
+        bool sendWrappedAround{};
+        unsigned int lastPacketSent{};
         bool incompleteSend{};
-        chrono::steady_clock::time_point lastSuccessfulSendTime{};//todo make accordingly
+        chrono::steady_clock::time_point lastSuccessfulSendTime{};
 
         char *receiveBuffer = new char[size]{};
         unsigned int receiveNext{};
@@ -516,10 +822,10 @@ private:
         bool incompleteReceive{};
         chrono::steady_clock::time_point lastSuccessfulReceiveTime{};
 
-        OnNewTunnelResponse onNewTunnelResponse{};
-        OnNewTunnelRequest onNewTunnelRequest{};
-        OnDeleteTunnelRequest onDeleteTunnelRequest{};
-        OnUnsentData onUnsentData{};
+        OnNewTunnelResponse onNewTunnelResponse{[](sockaddr_storage &) {}};
+        OnNewTunnelRequest onNewTunnelRequest{[] {}};
+        OnDeleteTunnelRequest onDeleteTunnelRequest{[](unsigned int) {}};
+        OnUnsentData onUnsentData{[](UnsentData &) {}};
 
 
         fd_set &receiveSet;
@@ -544,44 +850,60 @@ private:
     };
 
     shared_ptr<Data> data;
+
     constexpr static chrono::milliseconds pingTimeout{2000};
     constexpr static chrono::milliseconds sendTimeout{2000};
     constexpr static chrono::milliseconds receiveTimeout{2000};
 
     void advanceLastPacketSent() {
-        while (data->lastPacketSent != data->written)
-            switch (data->sendBuffer[data->lastPacketSent]) {
+        while (data->lastPacketSent != data->sendNext) {
+            unsigned int totalSize{1};
+            auto t = data->sendBuffer[data->lastPacketSent];
+            switch (t) {
                 case DATA_SEGMENT: {
-                    auto &header = *(DataSegment *) (data->sendBuffer + data->lastPacketSent + 1);
-                    auto totalSize = 1 + sizeof(DataSegment) + toHostByteOrder(header.size);
-                    if (data->written - data->lastPacketSent < totalSize)return;
-                    data->lastPacketSent += totalSize;
+                    auto currentBuf = data->size - data->lastPacketSent - 1;
+                    auto amt = min(currentBuf, (unsigned int) sizeof(DataSegment));
+                    DataSegment header{};
+                    memcpy(&header, data->sendBuffer + data->lastPacketSent + 1, amt);
+                    if (amt < sizeof(DataSegment)) {
+                        memcpy((char *) &header + amt, data->sendBuffer, sizeof(DataSegment) - amt);
+                    }
+                    totalSize += sizeof(DataSegment) + toHostByteOrder(header.size);
+                    break;
+                }
+                case NEW_TUNNEL_RESPONSE_SEGMENT: {
+                    auto currentBuf = data->size - data->lastPacketSent - 1;
+                    auto amt = min(currentBuf, (unsigned int) sizeof(NewTunnelResponseSegment));
+                    NewTunnelResponseSegment header{};
+                    memcpy(&header, data->sendBuffer + data->lastPacketSent + 1, amt);
+                    if (amt < sizeof(NewTunnelResponseSegment)) {
+                        memcpy((char *) &header + amt, data->sendBuffer, sizeof(NewTunnelResponseSegment) - amt);
+                    }
+                    totalSize += sizeof(NewTunnelResponseSegment) +
+                                 (header.family == AF_INET ? sizeof(in_addr) : sizeof(in6_addr));
+                    break;
+                }
+                case DELETE_TUNNEL_SEGMENT: {
+                    totalSize += sizeof(DeleteTunnelSegment);
                     break;
                 }
                 case PING_SEGMENT:
                 case PING_RESPONSE_SEGMENT:
                 case NEW_TUNNEL_REQUEST_SEGMENT: {
-                    data->lastPacketSent += 1;
-                    break;
-                }
-                case NEW_TUNNEL_RESPONSE_SEGMENT: {
-                    auto &header = *(NewTunnelResponseSegment *) (data->sendBuffer +
-                                                                  data->lastPacketSent + 1);
-                    auto totalSize = 1 + sizeof(NewTunnelResponseSegment) + (header.family == AF_INET ? 4 : 16);
-                    if (data->written - data->lastPacketSent < totalSize)return;
-                    data->lastPacketSent += totalSize;
-                    break;
-                }
-                case DELETE_TUNNEL_SEGMENT: {
-                    auto totalSize = 1 + sizeof(DeleteTunnelSegment);
-                    if (data->written - data->lastPacketSent < totalSize)return;
-                    data->lastPacketSent += totalSize;
                     break;
                 }
                 default: {
                     throw logic_error("Segment not implemented");
                 }
             }
+            auto available =
+                    data->sendNext > data->lastPacketSent ? data->sendNext - data->lastPacketSent : data->size -
+                                                                                                    data->lastPacketSent +
+                                                                                                    data->sendNext;
+            if (totalSize > available)break;
+            data->lastPacketSent = (data->size - data->lastPacketSent > totalSize) ? data->lastPacketSent + totalSize :
+                                   totalSize + data->lastPacketSent - data->size;
+        }
     }
 
     TCPSocket &getTCPSocket() {

@@ -566,7 +566,7 @@ void testTCPSocketRetryConnect() {
             auto err = WSAGetLastError();
             if (err == WSAECONNREFUSED || err == WSAETIMEDOUT)
 #else
-                if (errno == ECONNREFUSED || errno == ETIMEDOUT)
+            if (errno == ECONNREFUSED || errno == ETIMEDOUT)
 #endif
             {
                 if (chrono::steady_clock::now() - startTime > timeout) {
@@ -1115,8 +1115,7 @@ void testMutex() {
 
 int main() {
     initPlatform();
-    TCPSocket sock;
-    sock.connect(1234);
+    testMutex();
 }
 
 #pragma clang diagnostic pop
