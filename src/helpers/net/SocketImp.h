@@ -13,50 +13,6 @@
 Socket::Socket(int domain, int type, int proto) : Socket(socket(domain, type, proto), domain, type, proto) {
 }
 
-Socket::~Socket() {
-    if (data) {
-        if (--data->count == 0) {
-            CLOSE(data->socket);
-            delete data;
-        }
-    }
-}
-
-Socket::Socket(Socket &&old) noexcept {
-    data = old.data;
-    old.data = nullptr;
-}
-
-Socket &Socket::operator=(const Socket &old) {
-    if (old.data != data) {
-        if (data && --data->count == 0) {
-            CLOSE(data->socket);
-            delete data;
-        }
-        data = old.data;
-        data->count++;
-    }
-
-    return *this;
-}
-
-Socket::Socket(const Socket &old) {
-    data = old.data;
-    data->count++;
-}
-
-Socket &Socket::operator=(Socket &&old) noexcept {
-    if (data != old.data) {
-        if (data && --data->count == 0) {
-            CLOSE(data->socket);
-            delete data;
-        }
-        data = old.data;
-        old.data = nullptr;
-    }
-    return *this;
-}
-
 void Socket::setOption(int level, int option, void *val, socklen_t len) {
     if (setsockopt(data->socket, level, option, (char *) val, len) == -1) {
         throw SocketError("Could not set an option on socket");
@@ -132,7 +88,7 @@ InetSocket::InetSocket(int type, bool ipv6) : Socket(ipv6 ? AF_INET6 : AF_INET, 
 
 void InetSocket::setBlocking(bool isBlocking) {
 #ifdef  _WIN32
-    if (ioctlsocket(data->socket, FIONBIO, isBlocking ? 0 : (unsigned long *) &ULONG_ONE) == -1)
+    if (ioctlsocket(data->socket, FIONBIO, isBlocking ? (unsigned long *) &ZERO : (unsigned long *) &ULONG_ONE) == -1)
         throw SocketError("Could not set non blocking flag on socket");
 #else
     if (isBlocking) {
@@ -179,26 +135,28 @@ int InetSocket::tryConnect(void *addr, socklen_t len) {
     return ::connect(data->socket, reinterpret_cast<const sockaddr *>(addr), len);
 }
 
-void InetSocket::connect(void *addr, socklen_t len) {
-    if (tryConnect(addr, len) == -1)
+int InetSocket::connect(void *addr, socklen_t len, bool ignoreWouldBlock) {
+    auto res = tryConnect(addr, len);
+    if (res == -1 && !(ignoreWouldBlock && isConnectionInProgress()))
         throw SocketError("Could not connect");
+    return res;
 }
 
-void InetSocket::connect(const char *ip, unsigned short port) {
+int InetSocket::connect(const char *ip, unsigned short port, bool ignoreWouldBlock) {
     sockaddr_storage addr{static_cast<sa_family_t>(data->domain)};
     initialize(addr, static_cast<sa_family_t>(data->domain), ip, port);
-    connect(addr);
+    return connect(addr, ignoreWouldBlock);
 }
 
-void InetSocket::connect(const string &ip, unsigned short port) {
-    connect(ip.c_str(), port);
+int InetSocket::connect(const string &ip, unsigned short port, bool ignoreWouldBlock) {
+    return connect(ip.c_str(), port, ignoreWouldBlock);
 }
 
-void InetSocket::connectToHost(const char *hostname, unsigned short port) {
+int InetSocket::connectToHost(const char *hostname, unsigned short port, bool ignoreWouldBlock) {
     auto addrInfo = resolveHost(hostname, "80", data->domain, data->type);
     if (addrInfo->ai_family == AF_INET)reinterpret_cast<sockaddr_in *>(addrInfo->ai_addr)->sin_port = htons(port);
     else reinterpret_cast<sockaddr_in6 *>(addrInfo->ai_addr)->sin6_port = htons(port);
-    connect(addrInfo->ai_addr, addrInfo->ai_addrlen);
+    return connect(addrInfo->ai_addr, (socklen_t) addrInfo->ai_addrlen, ignoreWouldBlock);
 }
 
 int InetSocket::trySend(const void *buf, int len, int options) {
@@ -256,15 +214,17 @@ int InetSocket::receiveIgnoreWouldBlock(void *buf, int len, int options) {
     return total;
 }
 
-void InetSocket::connectToHost(const string hostname, unsigned short port) {
-    connect(hostname.c_str(), port);
+int InetSocket::connectToHost(const string &hostname, unsigned short port, bool ignoreWouldBlock) {
+    return connect(hostname.c_str(), port, ignoreWouldBlock);
 }
 
-void InetSocket::connect(unsigned short port) {
+int InetSocket::connect(unsigned short port, bool ignoreWouldBlock) {
     sockaddr_storage addr{};
     initialize(addr, static_cast<sa_family_t>(data->domain), "127.0.0.1", port);
-    connect(addr);
+    return connect(addr, ignoreWouldBlock);
 }
+
+InetSocket::InetSocket(DeferInit _) : Socket(_) {}
 
 template<class Buffer>
 int InetSocket::sendObjectIgnoreWouldBlock(Buffer &&buf, int options) {
@@ -320,17 +280,15 @@ void Socket::shutdownRead() {
     shutdown(data->socket, SHUT_RD);
 }
 
-Socket::Socket(socket_t sock, int domain, int type, int proto) {
-    if (sock == -1)throw SocketError("Could not create a socket");
-    data->socket = sock;
-    data->domain = domain;
-    data->type = type;
-    data->protocol = proto;
+Socket::Socket(socket_t fd, int domain, int type, int proto) : data(new Data{fd, domain, type, proto}) {
+    if (fd == -1)throw invalid_argument("Invalid socket file descriptor");
 }
 
 bool Socket::isValid() {
     return data->socket != -1;
 }
+
+Socket::Socket(DeferInit) {}
 
 template<class Addr>
 void InetSocket::getBindAddress(Addr &addr) {
@@ -340,14 +298,16 @@ void InetSocket::getBindAddress(Addr &addr) {
 }
 
 template<class Addr>
-void InetSocket::connect(Addr &addr) {
-    if (tryConnect(addr) == -1)
+int InetSocket::connect(Addr &addr, bool ignoreWouldBlock) {
+    int res = tryConnect(addr);
+    if (res == -1 && !(ignoreWouldBlock && isConnectionInProgress()))
         throw SocketError("Could not connect");
+    return res;
 }
 
 template<class Addr>
 int InetSocket::tryConnect(Addr &addr) {
-    return ::connect(data->socket, reinterpret_cast<const sockaddr *>(&addr), sizeof addr);
+    return tryConnect(&addr, sizeof addr);
 }
 
 template<class Addr>
@@ -399,6 +359,8 @@ TCPSocket TCPSocket::tryAccept(void *addr, socklen_t &len) {
     Socket sock(res, data->domain, data->type, data->protocol);
     return *reinterpret_cast<TCPSocket *>(&sock);
 }
+
+TCPSocket::TCPSocket(DeferInit _) : InetSocket(_) {}
 
 template<class Addr>
 TCPSocket TCPSocket::accept(Addr &addr) {
@@ -475,6 +437,8 @@ int UDPSocket::receiveFromIgnoreWouldBlock(void *buf, int len, void *addr, sockl
     if (total == -1 && !isWouldBlock())throw SocketError("Receive from failed");
     return total;
 }
+
+UDPSocket::UDPSocket(DeferInit _) : InetSocket(_) {}
 
 template<typename Addr>
 int UDPSocket::receiveFromIgnoreWouldBlock(void *buf, int len, Addr &addr, int options) {

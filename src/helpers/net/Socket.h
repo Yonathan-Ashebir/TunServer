@@ -14,21 +14,21 @@
 
 class Socket {
 public:
+    inline explicit Socket(DeferInit);
+
     inline Socket(int domain, int type, int proto);
 
-    inline Socket(socket_t sock, int domain, int type, int proto);
-
-    inline ~Socket();
+    inline Socket(socket_t fd, int domain, int type, int proto);
 
     inline socket_t getFD();
 
-    inline Socket(const Socket &old);
+    inline Socket(const Socket &old) = default;
 
-    inline Socket(Socket &&old) noexcept;
+    inline Socket(Socket &&old) noexcept = default;
 
-    inline Socket &operator=(const Socket &old);
+    inline Socket &operator=(const Socket &old) = default;
 
-    inline Socket &operator=(Socket &&old) noexcept;
+    inline Socket &operator=(Socket &&old) noexcept = default;
 
     inline void setOption(int level, int option, void *val, socklen_t len);
 
@@ -72,19 +72,29 @@ public:
 
 protected:
     struct Data {
-        socket_t socket{};
+        socket_t socket{(socket_t) -1};
         int domain{};
         int type{};
         int protocol{};
         unsigned long count{1};
+
+        Data() = default;
+
+        ~Data() {
+            if (socket != -1)CLOSE(socket);
+        }
+
+        Data(socket_t fd, int domain, int type, int proto) : socket(fd), domain(domain), type(type), protocol(proto) {}
     };
-    Data *data = new Data{};
+
+    shared_ptr<Data> data;
 
 private:
 };
 
 class InetSocket : public Socket {
 public:
+    inline explicit InetSocket(DeferInit _);
 
     inline explicit InetSocket(int type, bool ipv6 = false);
 
@@ -122,20 +132,20 @@ public:
     template<class Addr>
     inline int tryConnect(Addr &addr);
 
-    inline void connect(void *addr, socklen_t len);
+    inline int connect(void *addr, socklen_t len,bool ignoreWouldBlock = false);
 
-    inline void connect(unsigned short port);
+    inline int connect(unsigned short port,bool ignoreWouldBlock = false);
 
     template<class Addr>
-    inline void connect(Addr &addr);
+    inline int connect(Addr &addr,bool ignoreWouldBlock = false);
 
-    inline void connect(const char *ip, unsigned short port);
+    inline int connect(const char *ip, unsigned short port,bool ignoreWouldBlock = false);
 
-    inline void connect(const string &ip, unsigned short port);
+    inline int connect(const string &ip, unsigned short port,bool ignoreWouldBlock = false);
 
-    inline void connectToHost(const char *hostname, unsigned short port);
+    inline int connectToHost(const char *hostname, unsigned short port,bool ignoreWouldBlock = false);
 
-    inline void connectToHost(const string hostname, unsigned short port);
+    inline int connectToHost(const string &hostname, unsigned short port,bool ignoreWouldBlock = false);
 
     inline int trySend(const void *buf, int len, int options = 0);
 
@@ -177,6 +187,8 @@ public:
 
 class TCPSocket : public InetSocket {
 public:
+    inline explicit TCPSocket(DeferInit _);
+
     inline explicit TCPSocket(bool ipv6 = false);
 
     template<class Val>
@@ -207,6 +219,8 @@ public:
 
 class UDPSocket : public InetSocket {
 public:
+    inline explicit UDPSocket(DeferInit _);
+
     inline explicit UDPSocket(bool ipv6 = false);
 
     template<class Val>
