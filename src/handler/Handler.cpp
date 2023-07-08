@@ -36,7 +36,7 @@ void Handler::handleUpStream() {
         int count = select(maxFdTunnel, &copy, nullptr, nullptr, // NOLINT(cppcoreguidelines-narrowing-conversions)
                            &tvCpy); // NOLINT(cppcoreguidelines-narrowing-conversions)
 
-        if (count == -1)throw SocketException("Could not use select on tunnel's file descriptor");
+        if (count == -1)throw SocketError("Could not use select on tunnel's file descriptor");
 
         if (count > 0 && tunnel.readPacket(packet)) {
             char srcIp[INET_ADDRSTRLEN];
@@ -144,8 +144,8 @@ void Handler::handleDownStream() {
             con->flushDataToClient(packet);
         }
         /*No need to check effect of flushing as things are immediate in networking*/
-//        usleep(100);
-        if (!atleastOneHasSpace)usleep(1000);
+//          this_thread::sleep_for(chrono::nanoseconds(100));
+        if (!atleastOneHasSpace)  this_thread::sleep_for(chrono::milliseconds (1));
     }
 
     downStreamShuttingDown = false;

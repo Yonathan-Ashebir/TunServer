@@ -7,13 +7,11 @@
 #ifndef TUNSERVER_HELPERS_INCLUDE_H
 #define TUNSERVER_HELPERS_INCLUDE_H
 
-#include <strings.h>
+#include <cstring>
 #include <cstdio>
-#include <unistd.h>
 #include <ctime>
 #include <iostream>
 #include <cstdlib>
-#include <unistd.h>
 #include <cstring>
 #include <ctime>
 #include <cmath>
@@ -38,7 +36,7 @@
 const int INT_ONE = 1;
 const auto ULONG_ONE = 1ul;
 const long long ZERO = 0;
-#define GeneralException(msg) std::system_error(errno,system_category(),msg)
+#define GeneralError(msg) std::system_error(errno,system_category(),msg)
 
 #ifdef _WIN32
 //#define WIN32_LEAN_AND_MEAN

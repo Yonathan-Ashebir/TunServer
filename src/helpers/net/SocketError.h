@@ -64,19 +64,19 @@ error_condition make_error_condition(socket_errc e) {
     return error_condition(static_cast<int>(e), socket_category);
 }*/
 
-class SocketException : public runtime_error {
+class SocketError : public runtime_error {
 public:
 
 
-    SocketException(const string &msg, int err = getLastSocketError()) : SocketException(msg.c_str(), err) {}
+    SocketError(const string &msg, int err = getLastSocketError()) : SocketError(msg.c_str(), err) {}
 
-    SocketException(const char *msg, int err = getLastSocketError()) : runtime_error(msg) {
+    SocketError(const char *msg, int err = getLastSocketError()) : runtime_error(msg) {
         message = msg;
         message += " | code: " + to_string(err) + " | description: " + getErrorDescription(err);
     }
 
 
-    ~SocketException() _GLIBCXX_TXN_SAFE_DYN _GLIBCXX_NOTHROW override {
+    ~SocketError() _GLIBCXX_TXN_SAFE_DYN _GLIBCXX_NOTHROW override {
 
     }
 

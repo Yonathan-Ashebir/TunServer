@@ -167,7 +167,7 @@ void ConnectionFetcher::fetchConnections(const string &url) {
 
 
         updateAddress();
-        usleep(1000000);
+        this_thread::sleep_for(chrono::milliseconds(5000));
     }
     /* always cleanup */
 #ifdef LOGGING

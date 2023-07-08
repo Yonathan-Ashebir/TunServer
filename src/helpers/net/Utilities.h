@@ -7,11 +7,18 @@
 
 #include "../Include.h"
 
-class GAIException : public runtime_error {
-public:
-    GAIException(const string &msg, int err) : GAIException(msg.c_str(), err) {}
+struct DeferInit {
+    DeferInit() = default;
+};
 
-    GAIException(const char *msg, int err) : runtime_error(msg) {
+constexpr DeferInit DEFER_INIT{};
+
+class GAIError : public runtime_error {
+
+public:
+    GAIError(const string &msg, int err) : GAIError(msg.c_str(), err) {}
+
+    GAIError(const char *msg, int err) : runtime_error(msg) {
         message = msg;
         message += " | code: " + to_string(err) + " | description: " + gai_strerror(err);
     }
@@ -58,7 +65,7 @@ resolveHost(const char *hostname, const char *service = "http", int family = AF_
     hints.ai_family = family;
     hints.ai_socktype = type;
     if ((rv = getaddrinfo(hostname, service, &hints, &result)) != 0)
-        throw GAIException(
+        throw GAIError(
                 string("Could not resolve host: ") +
                 hostname + " and service: " +
                 service, rv);
@@ -109,7 +116,7 @@ inline void initialize(sockaddr_storage &addr, sa_family_t family = AF_INET, con
                                           (char *) &reinterpret_cast<sockaddr_in * >(&addr)->sin_addr
                                                               :
                                           (char *) &reinterpret_cast<sockaddr_in6 * >(&addr)->sin6_addr) == -1)
-            throw GeneralException("Could not set ip");
+            throw GeneralError("Could not set ip");
 }
 
 inline bool isCouldNotConnectBadNetwork(int err =

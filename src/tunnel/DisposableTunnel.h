@@ -132,7 +132,7 @@ public:
             data->sendWrappedAround = false;
             socket.unsetFrom(data->sendSet);
             return;
-        } catch (SocketException &e) {
+        } catch (SocketError &e) {
 
 #ifdef LOGGING
             cout << "Tunnel socket flush failed with error: \n   what(): " << e.what() << endl;
@@ -197,7 +197,7 @@ public:
                                 if (dispatchedStart < headerSize)return result;
                             }
                         } else return result;
-                    } catch (SocketException &e) {
+                    } catch (SocketError &e) {
 #ifdef LOGGING
                         cout << "Tunnel's read packet failed with error\n   what(): " << e.what() << endl;
 #endif
@@ -257,7 +257,7 @@ public:
                                 data->receiveDispatched = 0;
                                 if (dispatchedStart < size)return result;
                             }
-                        } catch (SocketException &e) {
+                        } catch (SocketError &e) {
 #ifdef LOGGING
                             cout << "Tunnel's read packet failed with error\n   what(): " << e.what() << endl;
 #endif
@@ -279,7 +279,7 @@ public:
                             data->receiveDispatched = data->receiveNext;
                             data->incompleteReceive = false;
                             if (result.size() == max)return result;
-                        } catch (SocketException &e) {
+                        } catch (SocketError &e) {
 #ifdef LOGGING
                             cout << "Tunnel's read packet failed with error\n   what(): " << e.what() << endl;
 #endif
@@ -316,7 +316,7 @@ public:
                                 close();
                                 return result;
                             }
-                        } catch (SocketException &e) {
+                        } catch (SocketError &e) {
 #ifdef LOGGING
                             cout << "Tunnel's read packet failed with error\n   what(): " << e.what() << endl;
 #endif
@@ -354,7 +354,7 @@ public:
                             data->receiveType = 0;
                             data->receiveDispatched = data->receiveNext;
                             data->incompleteReceive = false;
-                        } catch (SocketException &e) {
+                        } catch (SocketError &e) {
 #ifdef LOGGING
                             cout << "Tunnel's read packet failed with error\n   what(): " << e.what() << endl;
 #endif
@@ -381,7 +381,7 @@ public:
                         data->receiveType = 0;
                         data->receiveDispatched = data->receiveNext;
                         data->incompleteReceive = false;
-                    } catch (SocketException &e) {
+                    } catch (SocketError &e) {
 #ifdef LOGGING
                         cout << "Tunnel's read packet failed with error\n   what(): " << e.what() << endl;
 #endif

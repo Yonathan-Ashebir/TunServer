@@ -59,13 +59,13 @@ Socket &Socket::operator=(Socket &&old) noexcept {
 
 void Socket::setOption(int level, int option, void *val, socklen_t len) {
     if (setsockopt(data->socket, level, option, (char *) val, len) == -1) {
-        throw SocketException("Could not set an option on socket");
+        throw SocketError("Could not set an option on socket");
     }
 }
 
 void Socket::getOption(int level, int option, void *val, socklen_t &len) {
     if (getsockopt(data->socket, level, option, (char *) val, &len) == -1) {
-        throw SocketException("Could not get an option from socket");
+        throw SocketError("Could not get an option from socket");
     }
 }
 
@@ -133,15 +133,15 @@ InetSocket::InetSocket(int type, bool ipv6) : Socket(ipv6 ? AF_INET6 : AF_INET, 
 void InetSocket::setBlocking(bool isBlocking) {
 #ifdef  _WIN32
     if (ioctlsocket(data->socket, FIONBIO, isBlocking ? 0 : (unsigned long *) &ULONG_ONE) == -1)
-        throw SocketException("Could not set non blocking flag on socket");
+        throw SocketError("Could not set non blocking flag on socket");
 #else
     if (isBlocking) {
         auto flags = fcntl(data->socket, F_GETFL);
-        if (flags == -1)throw GeneralException("Could not read socket mSock flags");
+        if (flags == -1)throw GeneralError("Could not read socket mSock flags");
         if (fcntl(data->socket, F_SETFL, flags & ~O_NONBLOCK) == -1)
-            throw GeneralException("Could not set socket to block");
+            throw GeneralError("Could not set socket to block");
     } else if (fcntl(data->socket, F_SETFL, O_NONBLOCK) == -1)
-        throw GeneralException("Could not set non blocking flag on socket");
+        throw GeneralError("Could not set non blocking flag on socket");
 #endif
 }
 
@@ -156,7 +156,7 @@ int InetSocket::tryBind(void *addr, socklen_t len) {
 
 void InetSocket::bind(void *addr, socklen_t len) {
     if (tryBind(addr, len) == -1)
-        throw SocketException("Could not bind");
+        throw SocketError("Could not bind");
 }
 
 void InetSocket::bind(unsigned short port) {
@@ -181,7 +181,7 @@ int InetSocket::tryConnect(void *addr, socklen_t len) {
 
 void InetSocket::connect(void *addr, socklen_t len) {
     if (tryConnect(addr, len) == -1)
-        throw SocketException("Could not connect");
+        throw SocketError("Could not connect");
 }
 
 void InetSocket::connect(const char *ip, unsigned short port) {
@@ -207,7 +207,7 @@ int InetSocket::trySend(const void *buf, int len, int options) {
 
 int InetSocket::send(const void *buf, int len, int options) {
     int sent;
-    if ((sent = trySend(buf, len, options)) == -1)throw SocketException("Could not send");
+    if ((sent = trySend(buf, len, options)) == -1)throw SocketError("Could not send");
     return sent;
 }
 
@@ -217,13 +217,13 @@ int InetSocket::tryReceive(void *buf, int len, int options) {
 
 int InetSocket::receive(void *buf, int len, int options) {
     int total;
-    if ((total = tryReceive(buf, len, options)) == -1)throw SocketException("Could not receive");
+    if ((total = tryReceive(buf, len, options)) == -1)throw SocketError("Could not receive");
     return total;
 }
 
 void Socket::close() {
     if (data->socket != -1 && CLOSE(data->socket) == -1)
-        throw SocketException("Could not close the socket");
+        throw SocketError("Could not close the socket");
     data->socket = -1;
 }
 
@@ -235,7 +235,7 @@ bool InetSocket::getReuseAddress() {
 
 void InetSocket::getBindAddress(void *addr, socklen_t &len) {
     if (getsockname(data->socket, reinterpret_cast<sockaddr *>(addr), &len) == -1)
-        throw SocketException("Could query the socket's bind address");
+        throw SocketError("Could query the socket's bind address");
 }
 
 unique_ptr<sockaddr_storage> InetSocket::getBindAddress() {
@@ -246,13 +246,13 @@ unique_ptr<sockaddr_storage> InetSocket::getBindAddress() {
 
 int InetSocket::sendIgnoreWouldBlock(const void *buf, int len, int options) {
     int sent;
-    if ((sent = trySend(buf, len, options)) == -1 && !isWouldBlock())throw SocketException("Could not send");
+    if ((sent = trySend(buf, len, options)) == -1 && !isWouldBlock())throw SocketError("Could not send");
     return sent;
 }
 
 int InetSocket::receiveIgnoreWouldBlock(void *buf, int len, int options) {
     int total;
-    if ((total = tryReceive(buf, len, options)) == -1 && !isWouldBlock())throw SocketException("Could not receive");
+    if ((total = tryReceive(buf, len, options)) == -1 && !isWouldBlock())throw SocketError("Could not receive");
     return total;
 }
 
@@ -309,7 +309,7 @@ int InetSocket::trySendObject(Buffer &buf, int options) {
 void Socket::regenerate() {
     close();
     if ((data->socket = ::socket(data->domain, data->type, data->protocol)) == -1)
-        throw SocketException("Could not create a new socket at regenerate()");
+        throw SocketError("Could not create a new socket at regenerate()");
 }
 
 void Socket::shutdownWrite() {
@@ -321,7 +321,7 @@ void Socket::shutdownRead() {
 }
 
 Socket::Socket(socket_t sock, int domain, int type, int proto) {
-    if (sock == -1)throw SocketException("Could not create a socket");
+    if (sock == -1)throw SocketError("Could not create a socket");
     data->socket = sock;
     data->domain = domain;
     data->type = type;
@@ -342,7 +342,7 @@ void InetSocket::getBindAddress(Addr &addr) {
 template<class Addr>
 void InetSocket::connect(Addr &addr) {
     if (tryConnect(addr) == -1)
-        throw SocketException("Could not connect");
+        throw SocketError("Could not connect");
 }
 
 template<class Addr>
@@ -353,7 +353,7 @@ int InetSocket::tryConnect(Addr &addr) {
 template<class Addr>
 void InetSocket::bind(Addr &addr) {
     if (tryBind(addr) == -1)
-        throw SocketException("Could not bind");
+        throw SocketError("Could not bind");
 }
 
 template<class Addr>
@@ -381,14 +381,14 @@ int TCPSocket::tryListen(int count) {
 }
 
 void TCPSocket::listen(int count) {
-    if (tryListen(count) == -1)throw SocketException("Could not listen");
+    if (tryListen(count) == -1)throw SocketError("Could not listen");
 }
 
 
 TCPSocket TCPSocket::accept(void *addr, socklen_t &len) {
     socket_t res;
     if ((res = ::accept(data->socket, reinterpret_cast<sockaddr *>(addr), &len)) == -1)
-        throw SocketException("Could not accept");
+        throw SocketError("Could not accept");
     Socket sock(res, data->domain, data->type, data->protocol);
     return *reinterpret_cast<TCPSocket *>(&sock);
 }
@@ -443,7 +443,7 @@ int UDPSocket::tryReceiveFrom(void *buf, int len, void *addr, socklen_t &addrLen
 
 int UDPSocket::receiveFrom(void *buf, int len, void *addr, socklen_t &addrLen, int options) {
     auto total = tryReceiveFrom(buf, len, addr, addrLen, options);
-    if (total == -1)throw SocketException("Receive from failed");
+    if (total == -1)throw SocketError("Receive from failed");
     return total;
 }
 
@@ -460,19 +460,19 @@ int UDPSocket::trySendTo(void *buf, int len, void *addr, socklen_t addrLen, int 
 
 int UDPSocket::sendTo(void *buf, int len, void *addr, socklen_t addrLen, int options) {
     auto sent = trySendTo(buf, len, addr, addrLen, options);
-    if (sent == -1)throw SocketException("Send to failed");
+    if (sent == -1)throw SocketError("Send to failed");
     return sent;
 }
 
 int UDPSocket::sendToIgnoreWouldBlock(void *buf, int len, void *addr, socklen_t addrLen, int options) {
     auto sent = trySendTo(buf, len, addr, addrLen, options);
-    if (sent == -1)throw SocketException("Send to failed");
+    if (sent == -1)throw SocketError("Send to failed");
     return sent;
 }
 
 int UDPSocket::receiveFromIgnoreWouldBlock(void *buf, int len, void *addr, socklen_t &addrLen, int options) {
     auto total = tryReceiveFrom(buf, len, addr, addrLen, options);
-    if (total == -1 && !isWouldBlock())throw SocketException("Receive from failed");
+    if (total == -1 && !isWouldBlock())throw SocketError("Receive from failed");
     return total;
 }
 
@@ -548,7 +548,7 @@ template<typename Addr>
 int UDPSocket::receiveFrom(void *buf, int len, Addr &addr, int options) {
     socklen_t addrLen = sizeof addr;
     auto total = receiveFrom(buf, len, &addr, addrLen, options);
-    if (total == -1)throw SocketException("Receive from failed");
+    if (total == -1)throw SocketError("Receive from failed");
     if (addrLen > sizeof addr)throw length_error("Peer address trimmed in receive from");
     return total;
 }

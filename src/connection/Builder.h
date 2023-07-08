@@ -127,7 +127,7 @@ void Builder<SockInfo>::connect(sockaddr_storage &addr, SockInfo &info, chrono::
     if (bindPort != 0)sock.bind(bindPort);
 
     if (sock.tryConnect(addr) == -1 && !isConnectionInProgress())
-        throw SocketException("Could not issue a connect on socket");
+        throw SocketError("Could not issue a connect on socket");
 
     connections.push_back(move(Connection(sock, addr, info, chrono::steady_clock::now() + timeout)));
     sock.setIn(writeSet);
@@ -152,7 +152,7 @@ void Builder<SockInfo>::handleConnections() {
         /*It is asserted that there will be atleast one socket for selection*/
         int count;
         if ((count = select(maxFd, nullptr, &writeCopy, &errorCopy, &timeout)) == -1)
-            throw SocketException("Could not use select on tunnel's file descriptor");
+            throw SocketError("Could not use select on tunnel's file descriptor");
 
         typedef typename decltype(connections)::iterator iterator;
         auto removeConnection = [&](const iterator &it) -> const iterator {

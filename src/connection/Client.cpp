@@ -224,7 +224,7 @@ errno != ECONNREFUSED && errno != ETIMEDOUT
                 } else if (chrono::steady_clock::now() - startTime > timeout) {
                     printf("Timeout\n");
                     break;
-                } else usleep(10000);
+                } else   this_thread::sleep_for(chrono::nanoseconds(10000));
             } else {
                 printf("Separately Connected\n");
                 char buf[10000]{};
@@ -248,7 +248,7 @@ errno != ECONNREFUSED && errno != ETIMEDOUT
                             break;
                         }
                     }
-                    usleep(10000);
+                      this_thread::sleep_for(chrono::nanoseconds(10000));
                 }
                 TCPSocket sock2;
                 sock2.setReuseAddress(true);
@@ -411,7 +411,7 @@ err != ECONNREFUSED && err != ETIMEDOUT
                         if (reader.tryConnect(serverAddr) == -1) {
                             if (isConnectionInProgress()) break;
                         }
-                    usleep(10000);
+                      this_thread::sleep_for(chrono::nanoseconds(10000));
                 }
             } else if (chrono::steady_clock::now() - startTime > timeout) {
                 printf("Timeout\n");
@@ -423,7 +423,7 @@ err != ECONNREFUSED && err != ETIMEDOUT
                         if (isConnectionInProgress()) break;
                     }
                 }
-                usleep(1000);
+                  this_thread::sleep_for(chrono::nanoseconds(1000));
             }
         }
         th.join();

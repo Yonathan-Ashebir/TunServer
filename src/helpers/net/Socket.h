@@ -9,7 +9,7 @@
 #define TUNSERVER_SOCKET_H
 
 #include "../Include.h"
-#include "SocketException.h"
+#include "SocketError.h"
 #include "Utilities.h"
 
 class Socket {

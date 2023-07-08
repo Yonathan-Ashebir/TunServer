@@ -75,7 +75,7 @@ void selectTest() {
     while (true) {
         int r = sock.receive(buf, sizeof buf);
         cout << "Read bytes: " << r << endl;
-        usleep(1000000);
+        this_thread::sleep_for(chrono::milliseconds (1000));
     }
 }
 
@@ -386,7 +386,7 @@ void startHelloServer() {
         printf("Accepted client from %s:%d\n", buf, ntohs(addr.sin_port));
         auto message = "Hello World!\n";
         client.send(message, strlen(message));//assuming it sends it all at ounce
-//        sleep(1000);
+//       this_thread::sleep_for(chrono::seconds(1000));
     }
 }
 
@@ -498,7 +498,7 @@ void testSocketReuseAddress() {
     ::printf("Sock1 connected\n");
     sock1.close();
 
-    sleep(1);
+   this_thread::sleep_for(chrono::seconds(1));
 
     /*Does not work without this on windows*/
 //    inet_pton(AF_INET, "1.1.1.1", &addr.sin_addr.s_addr);
@@ -507,7 +507,7 @@ void testSocketReuseAddress() {
     ::printf("Sock3 connected\n");
     sock3.close();
 
-//    sleep(6);
+//   this_thread::sleep_for(chrono::seconds(6));
 
     inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr.s_addr);
     addr.sin_port = htons(33332);
@@ -573,7 +573,7 @@ void testTCPSocketRetryConnect() {
                     printf("Timed out");
                     break;
                 }
-            } else throw BadException("Could not connect");
+            } else throw SocketError("Could not connect");
         } else {
             printf("Connected successfully");
             break;
@@ -596,7 +596,7 @@ void testTCPMappedAddress() {
     sockaddr_storage bindAddr{AF_INET};
     reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port = htons(11421);
     auto address = getTCPPublicAddress(bindAddr);
-//    usleep(500000);
+//      this_thread::sleep_for(chrono::nanoseconds(500000));
 //    address = getTCPPublicAddress(bindAddr);
 
     char addr[100];
@@ -614,7 +614,7 @@ void testUDPMappedAddress() {
     sockaddr_storage bindAddr{AF_INET};
     reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port = htons(12421);
     auto address = getUDPPublicAddress(bindAddr);
-//    usleep(500000);
+//      this_thread::sleep_for(chrono::nanoseconds(500000));
 //    address = getTCPPublicAddress(bindAddr);
 
     char addr[100];
@@ -698,7 +698,7 @@ void testException() {
         throw invalid_argument("sdnflksnd");
     }};
     t.detach();
-    sleep(5);
+   this_thread::sleep_for(chrono::seconds(5));
     printf("After sleep\n");
 }
 
@@ -707,15 +707,15 @@ void testMemoryLeakOnException() {
     for (int ind = 0; ind < max; ind++) {
         try {
             throw BadException("Exception message");
-        } catch (BadException exception) {
+        } catch (BadException e) {
             if (ind % (max / 5) == 0) {
-                printf("%s\n", exception.what());
+                printf("%s\n", e.what());
                 printf("Thrown %d times, %f\n", ind, (float) (ind + 1) / max);
             }
         }
     }
     printf("Finished\n");
-    sleep(60);
+   this_thread::sleep_for(chrono::seconds(60));
 }
 
 void reuseAddress() {
@@ -731,7 +731,7 @@ void reuseAddress() {
         sock.bind(bindAddr);
         sock.connect(remoteAddr);
         sock.close();
-        usleep(1000000);
+          this_thread::sleep_for(chrono::nanoseconds(1000000));
     }
 
 }
@@ -776,7 +776,7 @@ void p2pBothTryToConnect(bool random = false) {
             printf("Sock2 connected\n");
             break;
         }
-        usleep(500000);
+          this_thread::sleep_for(chrono::nanoseconds(500000));
     }
     t.join();
 }
@@ -792,7 +792,7 @@ void testStunReuseSocket() {
     auto mp1 = getTCPPublicAddress(sock);
 //    while(true){
 //        stunIndicate(sock);
-//        usleep(1);
+//          this_thread::sleep_for(chrono::nanoseconds(1));
 //    }
 
     auto mp2 = getTCPPublicAddress(sock, true);
@@ -818,7 +818,7 @@ void testStunReuseAddress() {
         }
 
         printf("Resolved public address of %s, trier %d\n", getAddressString(*mp).c_str(), count + 1);
-        usleep(2000000);
+          this_thread::sleep_for(chrono::nanoseconds(2000000));
     }
 
 }
@@ -975,7 +975,7 @@ void testFakeReturn() {
             printf("Non zero return: %d count: %d\n", noReturn(), count++);
         } else
 //            printf("Zero returned\n");
-            usleep(10000);
+              this_thread::sleep_for(chrono::nanoseconds(10000));
     }
 }
 
@@ -1019,7 +1019,7 @@ void artimetryOnPointerTest() {
 void testPrintAddress() {
     printf("Ptr1 0x%lX\n", printf);
     printf("Ptr1 0x%lX\n", &printf);
-//    sleep(100);
+//   this_thread::sleep_for(chrono::seconds(100));
 }
 
 struct CompressedTCPH {

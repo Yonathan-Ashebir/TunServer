@@ -66,7 +66,7 @@ void testSendAndReceive() {
         for (int ind = 0; ind < 30; ind++) {
             if (!tunnelToClose.isOpen())
                 break;
-            usleep(1000);
+            this_thread::sleep_for(chrono::milliseconds(1));
             tunnelToClose.writePacket(tcpPacket);
             tunnelToClose.sendDeleteTunnelRequest(tunnelIdToDelete);
             tunnelToClose.writePacket(tcpPacket);
@@ -78,7 +78,7 @@ void testSendAndReceive() {
 
 //        sock1.setBlocking(false);
         for (int ind = 0; ind < loopCount; ind++) {
-//            usleep(10000);
+//              this_thread::sleep_for(chrono::nanoseconds(10000));
             senderTunnel.writePacket(tcpPacket);
             senderTunnel.sendDeleteTunnelRequest(tunnelIdToDelete);
             senderTunnel.writePacket(tcpPacket);
@@ -129,7 +129,7 @@ void testSendAndReceive() {
         fd_set rcvCopy = rcv, sndCopy = snd, errCopy = err;
         timeval cpyTimeout = timeout;
         int count = select((int) sock2.getFD() + 1, &rcvCopy, &sndCopy, &errCopy, &cpyTimeout);
-        if (count < 0)throw SocketException("Could not select on sock2");
+        if (count < 0)throw SocketError("Could not select on sock2");
         if (chrono::steady_clock::now() - started > testTimeout)
             throw logic_error("Test timed out before receiving all packets");
         if (count == 0)continue;

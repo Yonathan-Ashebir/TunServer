@@ -220,7 +220,7 @@ void handleDownload() {
                     }
                 }
             }
-            usleep(10000);
+            this_thread::sleep_for(chrono::milliseconds (10));
         }
         ::printf("Resend to the client is finished\n");
     }};

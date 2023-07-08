@@ -55,7 +55,7 @@ void testDestructor() {
         }
     }
     cout << "Check memory usage of the program please..." << endl;
-    sleep(10);
+    this_thread::sleep_for(chrono::seconds(10));
 }
 
 void testAllMethods() {
