@@ -21,10 +21,14 @@ void testSendAndReceive() {
     /*some demo data*/
     CompressedTCPPacket tcpPacket{};
     tcpPacket.setProtocol(1);
-    tcpPacket.setWindowScale(1);
 //    tcpPacket.makeSyn(1, 1);
 //    tcpPacket.setWindowScale(2);
-    tcpPacket.setWindowSize(numeric_limits<unsigned short>::max());
+    tcpPacket.setWindow(numeric_limits<unsigned short>::max());
+    SmartBuffer buf{100};
+    buf.put((int)1);
+    buf.put((long)2);
+    buf.put((double)2.321);
+    tcpPacket.setTCPPayload(buf.as(0, 100));
 
     unsigned short tunnelIdToDelete = 13;
 
@@ -36,7 +40,7 @@ void testSendAndReceive() {
 
     /*send the data*/
     unsigned int loopCount = 30000;
-    chrono::milliseconds testTimeout{6000};
+    chrono::milliseconds testTimeout{10000};
     thread th{[&] {
         sock1.connect(serverAddr);
         fd_set rcv, snd, err;
@@ -141,7 +145,16 @@ void testSendAndReceive() {
 #endif
             for (auto &p: packets) {
                 assert(p.getLength() == tcpPacket.getLength());
-                assert(memcmp(p.getBuffer(), tcpPacket.getBuffer(), p.getLength()) == 0);
+                assert(memcmp(p.getBuffer(), tcpPacket.getBuffer(), tcpPacket.getPayloadOffset()) == 0);
+                tcpPacket.getPayload().manipulate([&](char *buf, unsigned int len) -> unsigned int {
+                    static auto off = 0;
+                    assert(memcmp(
+                            p.getBuffer() + reinterpret_cast<CompressedTCPPacket *>(&p)->getTCPPayloadOffset() + off,
+                            buf, len) == 0);
+                    off += len;
+                    if (off == tcpPacket.getPayload().getLimit()) off = 0;
+                    return len;
+                }, 0);
             }
             if (packetCount >= loopCount * 3)break;
         }

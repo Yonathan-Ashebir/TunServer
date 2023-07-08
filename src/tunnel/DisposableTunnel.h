@@ -89,7 +89,7 @@ public:
         if (remaining) {
             data->sendWrappedAround = true;
             data->sendUser = remaining;
-            packet.writeTo(data->sendBuffer, remaining);
+            packet.writeTo(data->sendBuffer, remaining, amt);
         } else data->sendUser += packet.getLength();
         socket.setIn(data->sendSet);
         return true;

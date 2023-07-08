@@ -62,7 +62,7 @@ private:
     states state = CLOSED;
     bool clientReadFinished = false;
     bool serverReadFinished = false;
-    TCPSocket mSock{};
+    TCPSocket mSock{DEFER_INIT};
 
     Tunnel &tunnel;
     mutex mtx;

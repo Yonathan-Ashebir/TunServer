@@ -70,11 +70,15 @@ public:
 
     inline virtual void setPayload(SmartBuffer<char> &buf, unsigned short offset);
 
+    inline virtual void setPayload(SmartBuffer<char> &&buf, unsigned short offset);
+
     [[nodiscard]]inline SmartBuffer<char> &getPayload() const;
 
     [[nodiscard]] inline char *getBuffer() const;
 
     [[nodiscard]] inline unsigned short getBufferSize() const;
+
+    [[nodiscard]] inline unsigned short getPayloadOffset() const;
 
     virtual bool isValid();
 
@@ -121,19 +125,19 @@ CompressedIPPacket::CompressedIPPacket(unsigned short extra) {
 
 
 unsigned int CompressedIPPacket::getSourceIP() const {
-    return toHostByteOrder(getIPHeader().sourceIP);
+    return getIPHeader().sourceIP;
 }
 
 unsigned int CompressedIPPacket::getDestinationIP() const {
-    return toHostByteOrder(getIPHeader().destinationIP);
+    return getIPHeader().destinationIP;
 }
 
 void CompressedIPPacket::setSourceIP(unsigned int ip) {
-    getIPHeader().sourceIP = toNetworkByteOrder(ip);
+    getIPHeader().sourceIP = ip;
 }
 
 void CompressedIPPacket::setDestinationIP(unsigned int ip) {
-    getIPHeader().destinationIP = toNetworkByteOrder(ip);
+    getIPHeader().destinationIP = ip;
 }
 
 unsigned short CompressedIPPacket::getBufferSize() const {
@@ -191,7 +195,7 @@ unsigned short CompressedIPPacket::writeTo(void *buf, unsigned short len, unsign
 
     if (remaining) {
         auto amt = min(remaining, (unsigned short) data->payload.available());
-        data->payload.get((char *) buf, amt, off); //IMP: can be compiled without a cast to char *
+        data->payload.get((char *) buf, amt, 0); //IMP: can be compiled without a cast to char *
         remaining -= amt;
     }
 
@@ -222,6 +226,14 @@ CompressedIPPacket::CompressedIPPacket(void *buf, unsigned short size, shared_pt
                                        SmartBuffer<char> payload) : data(
         new Data{(char *) buf, size, std::move(handle), payload}) {
     if (size < getIPHeaderSize())throw length_error("Invalid ip packet size");
+}
+
+unsigned short CompressedIPPacket::getPayloadOffset() const {
+    return data->payloadOffset;
+}
+
+void CompressedIPPacket::setPayload(SmartBuffer<char> &&buf, unsigned short offset) {
+    setPayload(buf, offset);
 }
 
 template<typename Object>

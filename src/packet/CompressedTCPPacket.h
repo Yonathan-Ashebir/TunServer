@@ -5,8 +5,9 @@
 #pragma clang diagnostic push
 #pragma ide diagnostic ignored "OCUnusedStructInspection"
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
-#ifndef TUNSERVER_PACKET_H
-#define TUNSERVER_PACKET_H
+
+#ifndef TUNSERVER_COMPRESSED_TCP_PACKET_H
+#define TUNSERVER_COMPRESSED_TCP_PACKET_H
 
 
 #pragma once
@@ -60,6 +61,14 @@ public:
 
     inline void setDestinationPort(unsigned short port);
 
+    inline void setSourceAddress(sockaddr_storage &addr);
+
+    inline void setDestinationAddress(sockaddr_storage &addr);
+
+    sockaddr_storage getSourceAddress();
+
+    sockaddr_storage getDestinationAddress();
+
     inline void setSequenceNumber(unsigned int seq);
 
     inline void setAcknowledgmentNumber(unsigned int ack);
@@ -74,9 +83,7 @@ public:
 
     inline void setPushFlag(bool isPush);
 
-    inline void setWindowSize(unsigned short window);
-
-    inline void setWindowScale(unsigned char shift);
+    inline void setWindow(unsigned int total);
 
     inline void setWindowSize(unsigned short window, unsigned char shift);
 
@@ -84,7 +91,7 @@ public:
 
     [[nodiscard]]  inline unsigned short getSourcePort() const;
 
-    [[nodiscard]] inline unsigned short getDestination() const;;
+    [[nodiscard]] inline unsigned short getDestinationPort() const;;
 
     [[nodiscard]] inline unsigned int getSequenceNumber() const;
 
@@ -110,6 +117,10 @@ public:
 
     inline unsigned short copyTCPPayloadTo(void *buf, unsigned short len) const;
 
+    inline void setTCPPayload(SmartBuffer<char> &buf);
+
+    inline void setTCPPayload(SmartBuffer<char> &&buf);
+
     inline void makeSyn(unsigned int seq, unsigned int ack);
 
     inline void makeResetSeq(unsigned int seq);
@@ -121,6 +132,8 @@ public:
     inline void makeNormal(unsigned int seqNo, unsigned int ackSeq);
 
     [[nodiscard]] inline unsigned int getSegmentLength() const;
+
+    [[nodiscard]]  static inline int getTCPPayloadOffset();
 
 
 protected:
@@ -134,14 +147,14 @@ private:
 };
 
 CompressedTCPPacket::CompressedTCPH &CompressedTCPPacket::getTCPHeader() const {
-    if (data->payloadOffset < getIPHeaderSize() + getTCPHeaderSize())
+    if (data->payloadOffset < getTCPPayloadOffset())
         throw logic_error("Invalid available inner buffer size for tcp");
     return *(CompressedTCPH *) (data->mBuffer + getIPHeaderSize());
 }
 
 
 void CompressedTCPPacket::swapEnds() {
-    auto iph = getIPHeader();
+    auto &iph = getIPHeader();
     auto &tcph = getTCPHeader();
 
     auto src = iph.sourceIP;
@@ -186,18 +199,15 @@ void CompressedTCPPacket::setPushFlag(bool isPush) {
 }
 
 void CompressedTCPPacket::setWindowSize(unsigned short window, unsigned char shift) {
-    setWindowScale(shift);
-    setWindowSize(window);
-}
-
-void CompressedTCPPacket::setWindowSize(unsigned short window) {
     auto &tcph = getTCPHeader();
     tcph.window = toNetworkByteOrder(window);
+    tcph.windowShift = min(shift, (unsigned char) 14);
 }
 
-void CompressedTCPPacket::setWindowScale(unsigned char shift) {
-    if (shift > 14)throw out_of_range("TCP window shift can not be over 14");
-    getTCPHeader().windowShift = shift;
+void CompressedTCPPacket::setWindow(unsigned int total) {
+    auto &tcph = getTCPHeader();
+    tcph.window = toNetworkByteOrder(static_cast<unsigned short>(min(total, static_cast<unsigned int>(numeric_limits<unsigned short>::max()))));
+    tcph.windowShift = static_cast<char>(min(log2(total / numeric_limits<unsigned short>::max()), static_cast<double>(14)));
 }
 
 void CompressedTCPPacket::setMSS(unsigned short size) {
@@ -258,7 +268,7 @@ unsigned short CompressedTCPPacket::getTCPPayloadSize() const {
 }
 
 unsigned short CompressedTCPPacket::copyTCPPayloadTo(void *buf, unsigned short len) const {
-    if (data->payloadOffset < getIPHeaderSize() + getTCPHeaderSize())
+    if (data->payloadOffset < getTCPPayloadOffset())
         throw logic_error("Invalid available inner buffer size for tcp");
     unsigned short remaining = len;
     unsigned short amt = min(remaining,
@@ -328,10 +338,7 @@ void CompressedTCPPacket::makeNormal(unsigned int seqNo, unsigned int ackSeq) {
 }
 
 inline unsigned int CompressedTCPPacket::getSegmentLength() const {
-    unsigned int result = getTCPPayloadSize();
-    if (isSyn())result++;
-    if (isFin())result++;
-    return result;
+    return getTCPPayloadSize() + isFin() + isSyn();
 }
 
 unsigned short CompressedTCPPacket::getTCPHeaderSize() {
@@ -359,7 +366,7 @@ unsigned short CompressedTCPPacket::getSourcePort() const {
     return toHostByteOrder(getTCPHeader().sourcePort);
 }
 
-unsigned short CompressedTCPPacket::getDestination() const {
+unsigned short CompressedTCPPacket::getDestinationPort() const {
     return toHostByteOrder(getTCPHeader().destinationPort);
 }
 
@@ -369,7 +376,59 @@ CompressedTCPPacket::CompressedTCPPacket() : CompressedTCPPacket(0) {
 
 }
 
+void CompressedTCPPacket::setSourceAddress(sockaddr_storage &addr) {
+    if (addr.ss_family == AF_INET) {
+        auto inAddr = reinterpret_cast<sockaddr_in * >(&addr);
+        getIPHeader().sourceIP = inAddr->sin_addr.s_addr;
+        getTCPHeader().sourcePort = inAddr->sin_port;
+    } else {
+        //todo: implement ipv6
+        throw logic_error("Family isn't supported");
+    }
+}
 
-#endif //TUNSERVER_PACKET_H
+void CompressedTCPPacket::setDestinationAddress(sockaddr_storage &addr) {
+    if (addr.ss_family == AF_INET) {
+        auto inAddr = reinterpret_cast<sockaddr_in * >(&addr);
+        getIPHeader().destinationIP = inAddr->sin_addr.s_addr;
+        getTCPHeader().destinationPort = inAddr->sin_port;
+    } else {
+        //todo: implement ipv6
+        throw logic_error("Family isn't supported");
+    }
+}
+
+sockaddr_storage CompressedTCPPacket::getSourceAddress() {
+    //todo: implement ipv6
+    sockaddr_storage result{AF_INET};
+    auto inAddr = reinterpret_cast<sockaddr_in * >(&result);
+    inAddr->sin_addr.s_addr = getIPHeader().sourceIP;
+    inAddr->sin_port = getTCPHeader().sourcePort;
+    return result;
+}
+
+sockaddr_storage CompressedTCPPacket::getDestinationAddress() {
+    //todo: implement ipv6
+    sockaddr_storage result{AF_INET};
+    auto inAddr = reinterpret_cast<sockaddr_in * >(&result);
+    inAddr->sin_addr.s_addr = getIPHeader().destinationIP;
+    inAddr->sin_port = getTCPHeader().destinationPort;
+    return result;
+}
+
+int CompressedTCPPacket::getTCPPayloadOffset() {
+    return getIPHeaderSize() + getTCPHeaderSize();
+}
+
+void CompressedTCPPacket::setTCPPayload(SmartBuffer<char> &buf) {
+    setPayload(buf, getTCPPayloadOffset());
+}
+
+void CompressedTCPPacket::setTCPPayload(SmartBuffer<char> &&buf) {
+    setTCPPayload(buf);
+}
+
+
+#endif //TUNSERVER_COMPRESSED_TCP_PACKET_H
 
 #pragma clang diagnostic pop

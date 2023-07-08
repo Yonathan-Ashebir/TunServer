@@ -70,17 +70,17 @@ public:
 
     inline unsigned short getUrgentPointer();
 
-    inline bool isSyn() const;
+    [[nodiscard]] inline bool isSyn() const;
 
-    inline bool isFin() const;
+    [[nodiscard]] inline bool isFin() const;
 
-    inline bool isReset() const;
+    [[nodiscard]] inline bool isReset() const;
 
-    inline bool isPush() const;
+    [[nodiscard]] inline bool isPush() const;
 
-    inline bool isAck() const;
+    [[nodiscard]] inline bool isAck() const;
 
-    inline bool isUrg() const;
+    [[nodiscard]] inline bool isUrg() const;
 
     inline unsigned short getWindowSize();
 
@@ -94,7 +94,7 @@ public:
 
     inline void clearData();
 
-    inline unsigned short getDataLength() const;
+    [[nodiscard]] inline unsigned short getDataLength() const;
 
     inline unsigned short copyDataTo(void *buff, unsigned short len);
 
@@ -110,7 +110,7 @@ public:
 
     inline void swapEnds();
 
-    inline unsigned int getSegmentLength() const;
+    [[nodiscard]] inline unsigned int getSegmentLength() const;
 
     void validate() override;
 
@@ -121,9 +121,9 @@ protected:
 
 private:
 
-    inline tcphdr *getTcpHeader() const;
+    [[nodiscard]] inline tcphdr *getTcpHeader() const;
 
-    inline unsigned short getTcpHeaderLength() const;
+    [[nodiscard]] inline unsigned short getTcpHeaderLength() const;
 
     inline unsigned short getTcpOptionsLength();
 

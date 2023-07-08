@@ -39,7 +39,7 @@ public:
 
     void setBindAddress(sockaddr_storage &addr);
 
-    unsigned int getId() const;
+    [[nodiscard]] unsigned int getId() const;
 
     sockaddr_storage getBindAddress();
 
