@@ -198,7 +198,7 @@ void TCPPacket::validate() {
     auto iph = getIpHeader();
     const auto ipHeaderSize = getIpHeaderLength();
 
-    iph->id = random();
+    iph->id = ::rand();
     iph->check = 0;
     iph->check = checksum(buffer, ipHeaderSize);
 

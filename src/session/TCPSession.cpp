@@ -24,7 +24,7 @@ TCPSession::~TCPSession() {
 
 void TCPSession::receiveFromClient(TCPPacket &packet) {
     auto generateSequenceNo = []() {
-        return random() % 2 ^ 31;
+        return ::rand() % 2 ^ 31;
     };
 
     sockaddr_in client = packet.getSource();
@@ -37,7 +37,7 @@ void TCPSession::receiveFromClient(TCPPacket &packet) {
             packet.makeResetAck(packet.getSequenceNumber() + packet.getSegmentLength());
         tunnel.writePacket(packet);
 #ifdef LOGGING
-        ::printf("Sent regenerate from receiveFromClient\n");
+        ::printf("Sent reset from receiveFromClient\n");
 #endif
     };
     auto sendAck = [&packet, this] {
@@ -313,7 +313,7 @@ void TCPSession::flushDataToServer(TCPPacket &packet) {
                 packet.makeResetSeq(sendNext);
                 tunnel.writePacket(packet);
 #ifdef LOGGING
-                ::printf("Failed to flush it all to the server. So, sent regenerate\n");
+                ::printf("Failed to flush it all to the server. So, sent reset\n");
 #endif
                 closeSession();
             }

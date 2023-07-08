@@ -24,6 +24,7 @@
 #include <thread>
 #include <functional>
 #include <memory>
+#include <future>
 #include <csignal>
 #include <sys/types.h>
 #include "stun++/message.h"
@@ -31,8 +32,7 @@
 
 //#define STRICT_MODE
 #define LOGGING
-#define laterinit
-#define random() ::rand()
+#define IP_MSS 572
 const int INT_ONE = 1;
 const auto ULONG_ONE = 1ul;
 const long long ZERO = 0;
