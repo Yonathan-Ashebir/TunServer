@@ -70,7 +70,7 @@ void testAllMethods() {
     if ('e' != buffer.put('d').put('e').put('f').compact(1).flip().get<char>())
         logic_error("Bytes were corrupted at destructor test");
     buffer.clear().clear();
-    if (buffer.getPosition() != 0)logic_error("Bytes were corrupted at destructor test");
+    if (buffer.position() != 0)logic_error("Bytes were corrupted at destructor test");
     if (buffer.getLimit() != buffer.getCapacity())logic_error("Bytes were corrupted at destructor test");
     if (buffer.getBytesOffset() != 2)logic_error("Bytes were corrupted at destructor test");
     printf("All methods test passed\n");

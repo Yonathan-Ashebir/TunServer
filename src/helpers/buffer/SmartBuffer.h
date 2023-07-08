@@ -85,9 +85,9 @@ public:
 
     SmartBuffer &setLimit(unsigned int limit);
 
-    unsigned int getPosition();
+    unsigned int position();
 
-    SmartBuffer &setPosition(unsigned int pos);
+    SmartBuffer &position(unsigned int pos);
 
     SmartBuffer &setMark();
 
@@ -317,10 +317,10 @@ SmartBuffer<Object> &SmartBuffer<Object>::setLimit(unsigned int limit) {
 }
 
 template<typename Object>
-unsigned int SmartBuffer<Object>::getPosition() { return data->position; }
+unsigned int SmartBuffer<Object>::position() { return data->position; }
 
 template<typename Object>
-SmartBuffer<Object> &SmartBuffer<Object>::setPosition(unsigned int pos) {
+SmartBuffer<Object> &SmartBuffer<Object>::position(unsigned int pos) {
     if (pos > data->limit)throw out_of_range("Position can not exceed the limit");
     data->position = pos;
     return *this;

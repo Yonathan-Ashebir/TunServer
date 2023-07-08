@@ -1,12 +1,9 @@
 - Implement ipv6
-- Improve rtt based rto
 - const getters
 - Implement unordered packets handling
 - Implement auto send ack  when server connection succeeds
-- Smarter buffer usage
-- Robust socket resource utilization
-- Enhance mss
-- Connection life time management
+- Efficient socket resource utilization
 - Improve Nagle algorithm
-- WSAGetLastError and SOCKET_ERROR usage
-- Socket helper classes
+- Rename tunnel to tunnels
+- More on narrowing casts
+- Effective maxFD handling

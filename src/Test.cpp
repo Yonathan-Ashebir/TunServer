@@ -8,6 +8,7 @@
 #include "./packet/TCPPacket.h"
 #include "./tunnel/DatagramTunnel.h"
 #include "Test.h"
+#include "./sessions2/TCPSession.h"
 
 using namespace std;
 
@@ -566,7 +567,7 @@ void testTCPSocketRetryConnect() {
             auto err = WSAGetLastError();
             if (err == WSAECONNREFUSED || err == WSAETIMEDOUT)
 #else
-            if (errno == ECONNREFUSED || errno == ETIMEDOUT)
+                if (errno == ECONNREFUSED || errno == ETIMEDOUT)
 #endif
             {
                 if (chrono::steady_clock::now() - startTime > timeout) {
@@ -1113,9 +1114,52 @@ void testMutex() {
     printf("Test passed\n");
 }
 
+void testAsync() {
+    auto f = async([] {
+       this_thread::sleep_for(chrono::seconds(1));
+        cout << "After 1 sec" << endl;
+       this_thread::sleep_for(chrono::seconds(1));
+        cout << "After 2 sec" << endl;
+    });
+}
+
+void testThreadHandleDestruct() {
+    thread t{[] {
+       this_thread::sleep_for(chrono::seconds(1));
+        cout << "After 1 sec" << endl;
+       this_thread::sleep_for(chrono::seconds(1));
+        cout << "After 2 sec" << endl;
+    }};
+    t.detach();
+}
+
+struct ConstructorOnDeclarationStruct {
+    TCPSocket sock;
+    int a;
+
+    ConstructorOnDeclarationStruct() {};
+};
+
+
+void testConstructionOnDeclaration() {
+    ConstructorOnDeclarationStruct data;
+}
+
+void testOverFlowArtimetry() {
+    int a = 2 * numeric_limits<int>::max();
+    int b = -1;
+    cout << "Result of b - a: " << (b - a) << endl;
+
+    unsigned int c{1}, d{2};
+    auto res = c - d; //ha! no always false warrning even with a variable with well defined type
+    cout << "Result of (c - d < 0): " << (res < 0) << endl;
+}
+
 int main() {
     initPlatform();
-    testMutex();
+
+    int arr[5] = {4};
+    testOverFlowArtimetry();
 }
 
 #pragma clang diagnostic pop
