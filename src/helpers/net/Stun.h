@@ -8,41 +8,37 @@
 #include "../Include.h"
 #include "Socket.h"
 
+constexpr static chrono::milliseconds DEFAULT_STUN_TIMEOUT{30000};
+
 inline unique_ptr<sockaddr_storage> getTCPSTUNServer(sa_family_t family = AF_INET, bool forceRefresh = false) {
     auto result = std::make_unique<sockaddr_storage>(sockaddr_storage{family});
-    addrinfo hints{0, family, SOCK_STREAM}, *addresses;
-    int code;
-    if ((code = getaddrinfo("212.53.40.40", "http", &hints, &addresses)) != 0) {
-        exitWithError("Could not resolve host with error " + string(gai_strerror(code)));
-    }
+
+    auto addresses = resolveHost("212.53.40.40", "http", family, SOCK_STREAM);
     *result = *reinterpret_cast<sockaddr_storage *>(addresses->ai_addr);
     initialize(*result, family, nullptr, 3478);
-    freeaddrinfo(addresses);
-
     return result;
 }
 
 
 inline unique_ptr<sockaddr_storage> getUDPSTUNServer(sa_family_t family = AF_INET, bool forceRefresh = false) {
     auto result = std::make_unique<sockaddr_storage>(sockaddr_storage{family});
-    addrinfo hints{0, family, SOCK_STREAM}, *addresses;
-    int code;
-    if ((code = getaddrinfo("stun.l.google.com", "http", &hints, &addresses)) != 0) {
-        exitWithError("Could not resolve host with error " + string(gai_strerror(code)));
-    }
+    auto addresses = resolveHost("stun.l.google.com", "http", family, SOCK_DGRAM);
     *result = *reinterpret_cast<sockaddr_storage *>(addresses->ai_addr);
     initialize(*result, family, nullptr, 19302);
-    freeaddrinfo(addresses);
-
     return result;
 }
 
-inline unique_ptr<sockaddr_storage> getTCPPublicAddress(TCPSocket &sock, bool isConnected = false) {
+/** Returns the public address that is mapped to this particular tcp bind address.*/
+inline unique_ptr<sockaddr_storage> getTCPPublicAddress(TCPSocket &sock, bool isConnected = false,
+                                                        chrono::milliseconds timeout = DEFAULT_STUN_TIMEOUT) {
+    auto startTime = chrono::steady_clock::now();
     if (!isConnected) {
         auto stunAddr = getTCPSTUNServer();
-        sock.connect(*stunAddr);
+        sock.setBlocking(false);
+        sock.connect(*stunAddr, timeout);
     }
 
+    sock.setBlocking(true);
     int sent{};
 
 //    unsigned char tsx[12];
@@ -56,15 +52,22 @@ inline unique_ptr<sockaddr_storage> getTCPPublicAddress(TCPSocket &sock, bool is
     char testBuf[20]{};
     testBuf[1] = 1;
     while (sent < sizeof testBuf) {
+        auto diff = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - startTime);
+        if (diff > timeout) throw BadException("Timed out");
+        sock.setSendTimeout(timeout - diff);
         sent += sock.send(testBuf + sent,
                           sizeof testBuf - sent);// NOLINT(cppcoreguidelines-narrowing-conversions)
     }
 
     stun::message response{};
     int bytes{};
-    while (bytes < response.capacity())
+    while (bytes < response.capacity()) {
+        auto diff = chrono::duration_cast<chrono::milliseconds>(chrono::steady_clock::now() - startTime);
+        if (diff > timeout) throw BadException("Timed out");
+        sock.setReceiveTimeout(timeout - diff);
         bytes += sock.receive(response.data() + bytes,
-                              response.capacity() - bytes); // NOLINT(cppcoreguidelines-narrowing-conversions)
+                              static_cast<int>(response.capacity()) - bytes);
+    }// NOLINT(cppcoreguidelines-narrowing-conversions)
     if (response.size() > response.capacity()) {
         response.resize(response.size());
         while (bytes < response.capacity()) {
@@ -74,7 +77,7 @@ inline unique_ptr<sockaddr_storage> getTCPPublicAddress(TCPSocket &sock, bool is
     }
 
     using namespace stun::attribute;
-    auto address = std::make_unique<sockaddr_storage>(sockaddr_storage{AF_INET});//todo: compatitblity with ipv6
+    auto address = std::make_unique<sockaddr_storage>(sockaddr_storage{AF_INET});//todo: compatibility with ipv6
 
     for (auto &attr: response) {
         // First, check the attribute type
@@ -90,16 +93,19 @@ inline unique_ptr<sockaddr_storage> getTCPPublicAddress(TCPSocket &sock, bool is
     return address;
 }
 
-inline unique_ptr<sockaddr_storage> getTCPPublicAddress(sockaddr_storage &bindAddr) {
+/** Returns the public address that is mapped to this particular tcp bind address.*/
+inline unique_ptr<sockaddr_storage>
+getTCPPublicAddress(sockaddr_storage &bindAddr, chrono::milliseconds timeout = DEFAULT_STUN_TIMEOUT) {
     TCPSocket sock;
     sock.setReuseAddress(true);
     sock.bind(bindAddr);
-    auto result = getTCPPublicAddress(sock);
+    auto result = getTCPPublicAddress(sock, false, timeout);
     return result;
 }
 
 
-inline unique_ptr<sockaddr_storage> getUDPPublicAddress(UDPSocket &sock, bool isConnected = false) {
+inline unique_ptr<sockaddr_storage>
+getUDPPublicAddress(UDPSocket &sock, bool isConnected = false, chrono::milliseconds timeout = DEFAULT_STUN_TIMEOUT) {
     if (!isConnected) {
         auto stunAddr = getUDPSTUNServer();
         sock.connect(*stunAddr);
@@ -124,11 +130,12 @@ inline unique_ptr<sockaddr_storage> getUDPPublicAddress(UDPSocket &sock, bool is
 
     stun::message response{};
     response.resize(60);
+    sock.setReceiveTimeout(timeout);
     sock.receive(response.data(),
-                 response.capacity());
+                 static_cast<int>(response.capacity()));
 
     using namespace stun::attribute;
-    auto address = std::make_unique<sockaddr_storage>(sockaddr_storage{AF_INET});//todo: compatitblity with ipv6
+    auto address = std::make_unique<sockaddr_storage>(sockaddr_storage{AF_INET});//todo: compatibility with ipv6
     for (auto &attr: response) {
         // First, check the attribute type
         switch (attr.type()) {
@@ -144,11 +151,12 @@ inline unique_ptr<sockaddr_storage> getUDPPublicAddress(UDPSocket &sock, bool is
 }
 
 
-inline unique_ptr<sockaddr_storage> getUDPPublicAddress(sockaddr_storage &bindAddr) {
+inline unique_ptr<sockaddr_storage>
+getUDPPublicAddress(sockaddr_storage &bindAddr, chrono::milliseconds timeout = DEFAULT_STUN_TIMEOUT) {
     UDPSocket sock;
     sock.setReuseAddress(true);
     sock.bind(bindAddr);
-    auto result = getUDPPublicAddress(sock);
+    auto result = getUDPPublicAddress(sock, false, timeout);
     return result;
 }
 

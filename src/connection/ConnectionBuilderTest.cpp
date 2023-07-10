@@ -3,7 +3,6 @@
 //
 #include "Builder.h"
 #include "ConnectionFetcher.h"
-#include <curl/curl.h>
 
 using namespace std;
 
@@ -16,21 +15,24 @@ void test1() {
     Builder<unsigned int> builder{[](TCPSocket &sock, const sockaddr_storage &addr, const unsigned int &info) {
         printf("Socket %d connected\n", sock.getFD());
         sock.close();
-    }, [](TCPSocket &sock, const sockaddr_storage &addr, const unsigned int &info, int errorNum) {
-        printf("Socket %d failed\n", sock.getFD());
-        sock.close();
+    }, [](int errorNum, const sockaddr_storage &addr, const unsigned int &info) {
+        printf("Socket with err no %d failed\n", errorNum);
     }};
     builder.setBindPort(bindPort);
 
-    ConnectionFetcher fetcher("the server", [&builder](vector<ResultItem> &result) {
-        ::printf("Fetched %zu connection requests\n", result.size());
-        for (auto item: result) {
-            builder.connect(item.addr, item.id);
-        }
+    ConnectionFetcher fetcher("the server", "http://yoniash.000webhostapp.com/server.php",
+                              [&builder](vector<ConnectRequest> &result) {
+                                  ::printf("Fetched %zu connection requests\n", result.size());
+                                  for (auto item: result) {
+                                      builder.connect(item.addr, item.id);
+                                  }
+                              });
+    fetcher.setOnError([] {
+        cout << "Error occurred in fetcher" << endl;
     });
-
     fetcher.setBindAddress(bindAddr);
-    fetcher.start("http://yoniash.000webhostapp.com/server.php");//yoni-ash.000webhostapp.com
+    fetcher.start();
+    this_thread::sleep_for(chrono::hours(1000));
 };
 
 int main() {

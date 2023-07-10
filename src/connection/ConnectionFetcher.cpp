@@ -11,43 +11,40 @@
 
 using namespace std;
 
-#define SERVER_REGISTER_FORMAT "action=register&id=%ud&name=%s&addr=%s&port=%d"
-
-void ConnectionFetcher::start(const string &url) {
-    unique_lock<mutex> lock(mtx);
-    if (!started) {
-        started = true;
-        shouldRun = true;
-        lock.unlock();
-        thread th{[this, url] { fetchConnections(url); }};
-        th.join();//todo: replace this
-    }
-}
-
-ConnectionFetcher::ConnectionFetcher(const string &serverName, const on_result_t &onRes) : onResult(onRes) {
-    if (onRes == nullptr)throw invalid_argument("Null callback was supplied");
-    setServerName(serverName);
-}
-
-void ConnectionFetcher::setServerName(const string &name) {
+string validateServerName(string &name) {
     smatch matches{};
     regex pat(R"([-_a-zA-Z0-9- ]*)");
     if (regex_search(name, matches, pat)) {
-        serverName = matches[0];
+        return matches[0];
     } else throw invalid_argument("Bad server name supplied");
 }
 
+void ConnectionFetcher::start() {
+    unique_lock<mutex> lock(data->mtx);
+    if (!data->started) {
+        data->started = true;
+        data->shouldRun = true;
+        lock.unlock();
+        thread th{[&] { fetchConnections(); }};
+        th.detach();
+    }
+}
+
+ConnectionFetcher::ConnectionFetcher(string serverName, string serverURL, OnConnectionRequest onRes) : data(
+        new Data(std::move(validateServerName(serverName)), std::move(serverURL), std::move(onRes))) {
+}
+
 string ConnectionFetcher::getServerName() {
-    return serverName;
+    return data->serverName;
 }
 
 void ConnectionFetcher::stop() {
-    shouldRun = false;
+    data->shouldRun = false;
 }
 
-void ConnectionFetcher::setOnResult(const ConnectionFetcher::on_result_t &onRes) {
-    if (onRes == nullptr)throw invalid_argument("Null callback was supplied");
-    onResult = onRes;
+void ConnectionFetcher::setOnConnectionRequest(const OnConnectionRequest &onReq) {
+    if (!onReq)throw invalid_argument("Empty callback is disallowed");
+    data->onRequest = onReq;
 }
 
 struct ResponseData {
@@ -68,125 +65,142 @@ size_t reader(char *buf, __attribute__((unused)) size_t _, size_t len, ResponseD
     return len;
 }
 
-void ConnectionFetcher::fetchConnections(const string &url) {
-    DynamicJsonDocument doc{10000};
-    CURL *curl;
-    CURLcode res;
-    curl = curl_easy_init();
-    if (!curl) exitWithError("Could not generate curl's handle");
-    ResponseData data{};
-    char publicIp[INET6_ADDRSTRLEN]{};
-    unsigned short publicPort{};
-    char buf[100];
+void ConnectionFetcher::fetchConnections() {
+    DynamicJsonDocument doc{1000};
+    chrono::steady_clock::time_point lastTimeUpdatedAddress{};
+    constexpr static chrono::milliseconds STUN_TIMEOUT{3000};
+    constexpr static chrono::seconds STUN_INTERVAL{5};
 
-    auto updateAddress = [&, this] {
-        auto publicAddress = getTCPPublicAddress(bindAddr);
-        if (inet_ntop(publicAddress->ss_family, (publicAddress->ss_family == AF_INET)
-                                                ? (void *) &(reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_addr)
-                                                : (void *) &(reinterpret_cast<sockaddr_in6 *>(publicAddress.get())->sin6_addr),
-                      publicIp, sizeof publicIp) == nullptr) {
-            throw BadException("Could not parse the public address");
+    auto updateURL = [&] {
+        curl_easy_setopt(data->curl, CURLOPT_URL,
+                         (data->serverURL + "?action=register&id=" + to_string(data->id) + "&addr=" +
+                          getIPString(data->publicAddr) + "&port=" + to_string(getPort(data->publicAddr))).c_str());
+
+    };
+
+    auto updateAddress = [&, this]() -> bool {
+        try {
+            auto res = getTCPPublicAddress(data->bindAddr, STUN_TIMEOUT);
+            lastTimeUpdatedAddress = chrono::steady_clock::now();
+#ifdef LOGGING
+            cout << "My address = " << getAddressString(*res) << endl;
+#endif
+
+            if (*res != data->publicAddr) {
+                data->publicAddr = *res;
+                updateURL();
+            }
+            return true;
+        } catch (exception &e) {
+#ifdef LOGGING
+            cerr << "Updating address failed\n   what(): " << e.what() << endl;
+#endif
+            return false;
         }
-        publicPort = ntohs((publicAddress->ss_family == AF_INET)
-                           ? reinterpret_cast<sockaddr_in *>(publicAddress.get())->sin_port
-                           : reinterpret_cast<sockaddr_in6 *>(publicAddress.get())->sin6_port);
-#ifdef LOGGING
-        printf("My address = %s:%d\n", publicIp, publicPort);
-#endif
     };
-    updateAddress();
 
-    auto updateUrl = [&, this] {
-        snprintf(buf, sizeof buf, SERVER_REGISTER_FORMAT, id, curl_easy_escape(curl, serverName.c_str(), 0), publicIp,
-                 publicPort);
-        curl_easy_setopt(curl, CURLOPT_URL, (url + "?" + buf).c_str());
-    };
-    updateUrl();
-    curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, reader);
-    curl_easy_setopt(curl, CURLOPT_WRITEDATA, &data);
-#ifdef LOGGING
-    ::printf("Starting connection request fetching\n");
-#endif
-    while (shouldRun) {
-        data.ind = 0;
-        res = curl_easy_perform(curl);
+    curl_easy_setopt(data->curl, CURLOPT_WRITEFUNCTION, reader);
+    ResponseData responseData{};
+    curl_easy_setopt(data->curl, CURLOPT_WRITEDATA, &responseData);
 
-        /* Check for errors */
-        if (res != CURLE_OK) {
 #ifdef LOGGING
-            fprintf(stderr, "curl_easy_perform() failed: %s\n",
-                    curl_easy_strerror(res));
+    cout << "Starting connection request fetching" << endl;
 #endif
-        } else {
-            /*Parse result*/
-            long http_code = 0;
-            curl_easy_getinfo (curl, CURLINFO_RESPONSE_CODE, &http_code);
-            if (http_code != 200) {
-#ifdef LOGGING
-                fprintf(stderr, "Request failed: %ld\n",
-                        http_code);
-#endif
+    while (data->shouldRun) {
+        auto now = chrono::steady_clock::now();
+        if (now - lastTimeUpdatedAddress >= STUN_INTERVAL && !updateAddress()) {
+            this_thread::sleep_for(chrono::milliseconds(100));
+            if (data->retryCount == data->maxRetries) {
+                data->retryCount = 0;
+                stop();
+                data->onError();
+            } else
+                data->retryCount++;
+            continue;
+        }
 
-            } else {
-                deserializeJson(doc, data.buf);
-                if (doc.containsKey("id")) {
-                    unsigned int tempId = doc["id"];
-                    if (tempId != id) {
-                        id = tempId;
-#ifdef LOGGING
-                        printf("Connected to relay server with an id of %d\n", id);
-#endif
-                        updateUrl();
-                    }
-                }
+        responseData.ind = 0;
+        CURLcode res = curl_easy_perform(data->curl);
 
-                if (doc.containsKey("connections")) {
-                    vector<ResultItem> result;
-                    auto conns = doc["connections"];
-                    for (int i = 0; i < conns.size(); i++) {
-                        auto conn = conns[i];
-                        try {
-                            long clientId = conn["client_id"];
-                            if (clientId < 1)continue;
-                            string addrName = conn["addr"];
-                            int port = conn["port"];
-                            if (port < 1 || port > 65535)continue;
-                            sockaddr_storage addr{};
-                            initialize(addr, AF_INET, addrName.c_str(), port);
-                            //todo: only ipv4
-                            result.push_back(ResultItem{id, addr});
-                        } catch (...) {}
-                    }
+        /* check for errors */
+        long httpCode{};
+        if (res != CURLE_OK || (curl_easy_getinfo (data->curl, CURLINFO_RESPONSE_CODE, &httpCode), httpCode != 200)) {
 #ifdef LOGGING
-                    ::printf("Processed response and got %zu connections\n", result.size());
+            if (res != CURLE_OK)
+                cerr << "curl_easy_perform() failed: " <<
+                     curl_easy_strerror(res) << endl;
+            else cerr << "Request failed: " << httpCode << endl;
 #endif
-                    if (!result.empty())onResult(result);
-                }
+            if (data->retryCount == data->maxRetries) {
+                data->retryCount = 0;
+                stop();
+                data->onError();
+            } else
+                data->retryCount++;
+            continue;
+        }
+
+        /*parse result*/
+        deserializeJson(doc, responseData.buf);
+        if (doc.containsKey("id")) {
+            unsigned int tempId = doc["id"];
+            if (tempId != data->id) {
+                data->id = tempId;
+#ifdef LOGGING
+                cout << "Connected to relay server with an id of " << data->id << endl;
+#endif
+                updateURL();
             }
         }
 
-
-        updateAddress();
-        this_thread::sleep_for(chrono::milliseconds(5000));
-    }
-    /* always cleanup */
+        if (doc.containsKey("connections")) {
+            vector<ConnectRequest> result;
+            auto conns = doc["connections"];
+            for (int i = 0; i < conns.size(); i++) {
+                auto conn = conns[i];
+                try {
+                    long clientId = conn["client_id"];
+                    if (clientId < 1)continue;
+                    string addrName = conn["addr"];
+                    int port = conn["port"];
+                    if (port < 1 || port > 65535)continue;
+                    sockaddr_storage addr{};
+                    initialize(addr, AF_INET, addrName.c_str(), port);
+                    //todo: only ipv4
+                    result.push_back(ConnectRequest{data->id, addr});
+                } catch (...) {}
+            }
 #ifdef LOGGING
-    ::printf("Finishing connection request fetching\n");
+            cout << "Processed response and got connection of count: " << result.size() << endl;
 #endif
-    curl_easy_cleanup(curl);
-    started = false;
+            if (!result.empty())data->onRequest(result);
+        }
+
+
+        data->retryCount = 0;
+        this_thread::sleep_for(data->fetchInterval);
+    }
+
+#ifdef LOGGING
+    cout << "Finishing connection request fetching" << endl;
+#endif
+    data->started = false;
 }
 
 void ConnectionFetcher::setBindAddress(sockaddr_storage &addr) {
-    bindAddr = addr;
+    data->bindAddr = addr;
 }
 
-sockaddr_storage ConnectionFetcher::getBindAddress() {
-    return bindAddr;
+sockaddr_storage &ConnectionFetcher::getBindAddress() {
+    return data->bindAddr;
 }
 
 unsigned int ConnectionFetcher::getId() const {
-    return id;
+    return data->id;
+}
+
+void ConnectionFetcher::setOnConnectionRequest(const ConnectionFetcher::OnConnectionRequest &&onReq) {
+    setOnConnectionRequest(onReq);
 }
 
 #pragma clang diagnostic pop

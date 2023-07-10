@@ -26,6 +26,7 @@
 #include <memory>
 #include <future>
 #include <csignal>
+#include <cassert>
 #include <sys/types.h>
 #include "stun++/message.h"
 #include "Error.h"

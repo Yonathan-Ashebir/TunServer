@@ -9,6 +9,7 @@
 #include "./tunnel/DatagramTunnel.h"
 #include "Test.h"
 #include "./sessions2/TCPSession.h"
+#include "./connection/Builder.h"
 
 using namespace std;
 
@@ -76,7 +77,7 @@ void selectTest() {
     while (true) {
         int r = sock.receive(buf, sizeof buf);
         cout << "Read bytes: " << r << endl;
-        this_thread::sleep_for(chrono::milliseconds (1000));
+        this_thread::sleep_for(chrono::milliseconds(1000));
     }
 }
 
@@ -499,7 +500,7 @@ void testSocketReuseAddress() {
     ::printf("Sock1 connected\n");
     sock1.close();
 
-   this_thread::sleep_for(chrono::seconds(1));
+    this_thread::sleep_for(chrono::seconds(1));
 
     /*Does not work without this on windows*/
 //    inet_pton(AF_INET, "1.1.1.1", &addr.sin_addr.s_addr);
@@ -567,7 +568,7 @@ void testTCPSocketRetryConnect() {
             auto err = WSAGetLastError();
             if (err == WSAECONNREFUSED || err == WSAETIMEDOUT)
 #else
-                if (errno == ECONNREFUSED || errno == ETIMEDOUT)
+            if (errno == ECONNREFUSED || errno == ETIMEDOUT)
 #endif
             {
                 if (chrono::steady_clock::now() - startTime > timeout) {
@@ -596,7 +597,7 @@ void testPreProcessor() {
 void testTCPMappedAddress() {
     sockaddr_storage bindAddr{AF_INET};
     reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port = htons(11421);
-    auto address = getTCPPublicAddress(bindAddr);
+    auto address = getTCPPublicAddress(bindAddr,chrono::milliseconds{1000});
 //      this_thread::sleep_for(chrono::nanoseconds(500000));
 //    address = getTCPPublicAddress(bindAddr);
 
@@ -699,7 +700,7 @@ void testException() {
         throw invalid_argument("sdnflksnd");
     }};
     t.detach();
-   this_thread::sleep_for(chrono::seconds(5));
+    this_thread::sleep_for(chrono::seconds(5));
     printf("After sleep\n");
 }
 
@@ -716,7 +717,7 @@ void testMemoryLeakOnException() {
         }
     }
     printf("Finished\n");
-   this_thread::sleep_for(chrono::seconds(60));
+    this_thread::sleep_for(chrono::seconds(60));
 }
 
 void reuseAddress() {
@@ -732,7 +733,7 @@ void reuseAddress() {
         sock.bind(bindAddr);
         sock.connect(remoteAddr);
         sock.close();
-          this_thread::sleep_for(chrono::nanoseconds(1000000));
+        this_thread::sleep_for(chrono::nanoseconds(1000000));
     }
 
 }
@@ -777,7 +778,7 @@ void p2pBothTryToConnect(bool random = false) {
             printf("Sock2 connected\n");
             break;
         }
-          this_thread::sleep_for(chrono::nanoseconds(500000));
+        this_thread::sleep_for(chrono::nanoseconds(500000));
     }
     t.join();
 }
@@ -819,7 +820,7 @@ void testStunReuseAddress() {
         }
 
         printf("Resolved public address of %s, trier %d\n", getAddressString(*mp).c_str(), count + 1);
-          this_thread::sleep_for(chrono::nanoseconds(2000000));
+        this_thread::sleep_for(chrono::nanoseconds(2000000));
     }
 
 }
@@ -976,7 +977,7 @@ void testFakeReturn() {
             printf("Non zero return: %d count: %d\n", noReturn(), count++);
         } else
 //            printf("Zero returned\n");
-              this_thread::sleep_for(chrono::nanoseconds(10000));
+            this_thread::sleep_for(chrono::nanoseconds(10000));
     }
 }
 
@@ -1116,18 +1117,18 @@ void testMutex() {
 
 void testAsync() {
     auto f = async([] {
-       this_thread::sleep_for(chrono::seconds(1));
+        this_thread::sleep_for(chrono::seconds(1));
         cout << "After 1 sec" << endl;
-       this_thread::sleep_for(chrono::seconds(1));
+        this_thread::sleep_for(chrono::seconds(1));
         cout << "After 2 sec" << endl;
     });
 }
 
 void testThreadHandleDestruct() {
     thread t{[] {
-       this_thread::sleep_for(chrono::seconds(1));
+        this_thread::sleep_for(chrono::seconds(1));
         cout << "After 1 sec" << endl;
-       this_thread::sleep_for(chrono::seconds(1));
+        this_thread::sleep_for(chrono::seconds(1));
         cout << "After 2 sec" << endl;
     }};
     t.detach();
@@ -1155,11 +1156,49 @@ void testOverFlowArtimetry() {
     cout << "Result of (c - d < 0): " << (res < 0) << endl;
 }
 
+void testFunctionWrapper(function<void()> fun0 = {}) {
+    function<void(int)> fun1{};
+    function<void(int)> &fun1Ref = fun1;
+    function<void(int)> fun2 = fun2;
+    fun1 = [](int a) { cout << "fun1 was called" << endl; };
+    fun1(1);
+    cout << "Is fun0 == nullptr: " << (fun0 == nullptr) << endl;
+//    fun0();
+//    fun2(1);
+}
+
+/** Did not fail*/
+void testThreadSafetyOfChrono() {
+    const auto count = 100000;
+    chrono::steady_clock::time_point timePoint{};
+    thread th{[&] {
+        for (int ind{}; ind < count; ind++) {
+            timePoint += chrono::hours{1};
+        }
+        cout << "Updating thread finished" << endl;
+    }};
+
+    for (int ind{}; ind < count; ind++) {
+        auto sinceThen = chrono::duration_cast<chrono::hours>(timePoint.time_since_epoch()).count();
+        static chrono::hours::rep lastSinceThen{};
+        cout << "Timepoint is " << sinceThen << endl;
+        assert(sinceThen >= lastSinceThen);
+        lastSinceThen = sinceThen;
+    }
+    cout << "Printing thread finished" << endl;
+    th.join();
+};
+
+void testNegativeDuration() {
+    auto start = chrono::steady_clock::now();
+    this_thread::sleep_for(chrono::milliseconds{10});
+    cout << "Negative duration: " << (start - chrono::steady_clock::now()).count() << endl;
+}
+
 int main() {
     initPlatform();
-
-    int arr[5] = {4};
-    testOverFlowArtimetry();
+//    Builder<int> builder([](TCPSocket &sock, const sockaddr_storage &addr, const int &info) {});
+    testTCPMappedAddress();
 }
 
 #pragma clang diagnostic pop

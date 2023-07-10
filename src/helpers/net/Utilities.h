@@ -39,7 +39,7 @@ inline unsigned short getPort(sockaddr_storage &addr) {
                  : reinterpret_cast<sockaddr_in6 *>(&addr)->sin6_port);
 }
 
-inline string getIp(sockaddr_storage &addr) {
+inline string getIPString(sockaddr_storage &addr) {
     string result((addr.ss_family == AF_INET) ? INET_ADDRSTRLEN : INET6_ADDRSTRLEN, '\0');
     inet_ntop(addr.ss_family,
               (addr.ss_family == AF_INET) ? (void *) &reinterpret_cast<sockaddr_in *>(&addr)->sin_addr
@@ -55,7 +55,7 @@ inline string getIp(sockaddr_storage &addr) {
 }
 
 inline string getAddressString(sockaddr_storage &addr) {
-    return getIp(addr) + ":" + to_string(getPort(addr));
+    return getIPString(addr) + ":" + to_string(getPort(addr));
 }
 
 inline unique_ptr<addrinfo, function<void(addrinfo *)>>
@@ -77,7 +77,7 @@ inline bool isConnectionInProgress(int err =
 #ifdef _WIN32
 WSAGetLastError()
 #else
-        errno
+errno
 #endif
 ) {
 
@@ -93,7 +93,7 @@ inline bool isWouldBlock(int err =
 #ifdef _WIN32
 WSAGetLastError()
 #else
-        errno
+errno
 #endif
 ) {
 #ifdef _WIN32
@@ -123,7 +123,7 @@ inline bool isCouldNotConnectBadNetwork(int err =
 #ifdef _WIN32
 WSAGetLastError()
 #else
-        errno
+errno
 #endif
 ) {
 #ifdef _WIN32
@@ -133,5 +133,11 @@ WSAGetLastError()
     return err == ECONNREFUSED || err == ETIMEDOUT || err == ENETUNREACH;
 #endif
 }
+
+inline bool operator==(sockaddr_storage &addr1, sockaddr_storage &addr2) {
+    return memcmp(&addr1, &addr2, sizeof(sockaddr_storage)) == 0;
+}
+
+//inline bool operator !=
 
 #endif //TUNSERVER_UTILITIES_H

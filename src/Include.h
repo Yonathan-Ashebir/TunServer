@@ -8,6 +8,7 @@
 #include "helpers/Include.h"
 #include "helpers/net/Socket.h"
 #include "helpers/net/Stun.h"
+#include <curl/curl.h>
 #include "Constants.h"
 
 #endif //TUNSERVER_INCLUDE_H

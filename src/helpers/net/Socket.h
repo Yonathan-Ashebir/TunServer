@@ -45,12 +45,61 @@ public:
 
     inline void setSocketOption(int option, void *val, socklen_t len);
 
-    inline void setLinger(linger &ln);
-
     template<class Val>
     inline void getSocketOption(int option, Val &val);
 
     inline void getSocketOption(int option, void *val, socklen_t &len);
+
+    inline void setLinger(linger &ln);
+
+    inline linger getLinger(){
+        linger ln{};
+        getSocketOption(SO_LINGER,ln);
+        return ln;
+    }
+
+    inline void setSendTimeout(chrono::milliseconds timeout) {
+#ifdef _WIN32
+        DWORD val{timeout.count()};
+#else
+        timeval val{timeout / chrono::seconds(1), (timeout % chrono::seconds(1)).count() * 1000};
+#endif
+        setSocketOption(SO_SNDTIMEO, val);
+    };
+
+    inline chrono::milliseconds getSendTimeout() {
+#ifdef _WIN32
+        DWORD val{}
+        getSocketOption(SO_RCVTIMEO,val);
+        return chrono::milliseconds{val};
+#else
+        timeval val{};
+        getSocketOption(SO_SNDTIMEO, val);
+        return chrono::milliseconds{val.tv_sec * 1000 + val.tv_usec / 1000};
+#endif
+    };
+
+    inline void setReceiveTimeout(chrono::milliseconds timeout) {
+#ifdef _WIN32
+        DWORD val{timeout.count()};
+#else
+        timeval val{timeout / chrono::seconds(1), (timeout % chrono::seconds(1)).count() * 1000};
+#endif
+        setSocketOption(SO_RCVTIMEO, val);
+    };
+
+    inline chrono::milliseconds getReceiveTimeout() {
+#ifdef _WIN32
+        DWORD val{}
+        getSocketOption(SO_RCVTIMEO,val);
+        return chrono::milliseconds{val};
+#else
+        timeval val{};
+        getSocketOption(SO_RCVTIMEO, val);
+        return chrono::milliseconds{val.tv_sec * 1000 + val.tv_usec / 1000};
+#endif
+    };
+
 
     inline int getLastError();
 
@@ -132,20 +181,68 @@ public:
     template<class Addr>
     inline int tryConnect(Addr &addr);
 
-    inline int connect(void *addr, socklen_t len,bool ignoreWouldBlock = false);
+    inline int connect(void *addr, socklen_t len, bool ignoreWouldBlock = false);
 
-    inline int connect(unsigned short port,bool ignoreWouldBlock = false);
+    /** The socket is set to non-blocking after this operation*/
+    inline void connect(void *addr, socklen_t len, chrono::milliseconds timeout) {
+        setBlocking(false);
+        if (!connect(addr, len, true))return;
+        fd_set snd, err;
+        FD_ZERO(&snd);
+        FD_ZERO(&err);
+        setIn(snd);
+        setIn(err);
+        timeval timeval{0, timeout.count() * 1000};
+        auto count = select(data->socket + 1, nullptr, &snd, &err, &timeval);
+        if (count < 0)throw SocketError("select failed on socket");
+        if (count == 0)throw SocketError("Connect timed out");
+        if (isSetIn(err))throw SocketError("Error occurred during connect");
+    }
+
+    inline int connect(unsigned short port, bool ignoreWouldBlock = false);
+
+    inline void connect(unsigned short port, chrono::milliseconds timeout) {
+        sockaddr_storage addr{};
+        initialize(addr, static_cast<sa_family_t>(data->domain), "127.0.0.1", port);
+        connect(addr, timeout);
+    }
 
     template<class Addr>
-    inline int connect(Addr &addr,bool ignoreWouldBlock = false);
+    inline int connect(Addr &addr, bool ignoreWouldBlock = false);
 
-    inline int connect(const char *ip, unsigned short port,bool ignoreWouldBlock = false);
+    template<class Addr>
+    inline void connect(Addr &addr, chrono::milliseconds timeout) {
+        connect(&addr, sizeof addr, timeout);
+    }
 
-    inline int connect(const string &ip, unsigned short port,bool ignoreWouldBlock = false);
+    inline int connect(const char *ip, unsigned short port, bool ignoreWouldBlock = false);
 
-    inline int connectToHost(const char *hostname, unsigned short port,bool ignoreWouldBlock = false);
+    inline void connect(const char *ip, unsigned short port, chrono::milliseconds timeout) {
+        sockaddr_storage addr{static_cast<sa_family_t>(data->domain)};
+        initialize(addr, static_cast<sa_family_t>(data->domain), ip, port);
+        connect(addr, timeout);
+    }
 
-    inline int connectToHost(const string &hostname, unsigned short port,bool ignoreWouldBlock = false);
+    inline int connect(const string &ip, unsigned short port, bool ignoreWouldBlock = false);
+
+    inline void connect(const string &ip, unsigned short port, chrono::milliseconds timeout) {
+        connect(ip.c_str(), port, timeout);
+    }
+
+    inline int connectToHost(const char *hostname, unsigned short port, bool ignoreWouldBlock = false);
+
+    inline void connectToHost(const char *hostname, unsigned short port, chrono::milliseconds timeout) {
+        auto addrInfo = resolveHost(hostname, "80", data->domain, data->type);
+        if (addrInfo->ai_family == AF_INET)reinterpret_cast<sockaddr_in *>(addrInfo->ai_addr)->sin_port = htons(port);
+        else reinterpret_cast<sockaddr_in6 *>(addrInfo->ai_addr)->sin6_port = htons(port);
+        connect(addrInfo->ai_addr, (socklen_t) addrInfo->ai_addrlen, timeout);
+    }
+
+    inline int connectToHost(const string &hostname, unsigned short port, bool ignoreWouldBlock = false);
+
+    inline void connectToHost(const string &hostname, unsigned short port, chrono::milliseconds timeout) {
+        connect(hostname.c_str(), port, timeout);
+    }
 
     inline int trySend(const void *buf, int len, int options = 0);
 
