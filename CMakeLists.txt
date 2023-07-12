@@ -3,7 +3,11 @@ project(TunServer)
 
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_EXE_LINKER_FLAGS "-static-libgcc -static-libstdc++")
-set(RUNTIME_OUTPUT_DIRECTORY build_windows)
+#if (MSVC)
+#    add_compile_options(/W4 /WX)
+#else()
+#    add_compile_options(-Wall#[[ -Wextra -pedantic -Werror]])
+#endif()
 set(COMMON_SOURCES)
 include(CTest)
 
@@ -65,6 +69,10 @@ target_link_libraries(tunClient PRIVATE libcurl stunmsg)
 
 add_executable(TestDisposableTunnel src/tunnel/TestDisposableTunnel.cpp ${COMMON_SOURCES})
 add_test(NAME TestDisposableTunnel COMMAND TestDisposableTunnel)
+
+add_executable(TestClientHandler src/handler/TestClientHandler.cpp src/handler/ClientHandler.cpp ${COMMON_SOURCES})
+add_test(NAME TestClientHandler COMMAND TestClientHandler)
+
 #Tests
 #add_test(NAME ConnectionBuilderTest COMMAND connectionBuilder)
 

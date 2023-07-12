@@ -18,7 +18,7 @@ public:
 
     virtual bool readPacket(CompressedIPPacket &packet) = 0;
 
-    [[nodiscard]] inline Socket getSocket() const { return socket; }
+    [[nodiscard]] inline Socket & getSocket() { return socket; }
 
     Socket socket;
 };

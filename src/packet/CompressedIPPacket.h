@@ -80,9 +80,9 @@ public:
 
     [[nodiscard]] inline unsigned short getPayloadOffset() const;
 
-    virtual bool isValid();
+    inline virtual bool isValid();
 
-    virtual void validate();
+    inline virtual void validate();
 
     [[nodiscard]] inline unsigned int getSourceIP() const;
 

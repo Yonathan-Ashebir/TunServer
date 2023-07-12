@@ -597,7 +597,7 @@ void testPreProcessor() {
 void testTCPMappedAddress() {
     sockaddr_storage bindAddr{AF_INET};
     reinterpret_cast<sockaddr_in *>(&bindAddr)->sin_port = htons(11421);
-    auto address = getTCPPublicAddress(bindAddr,chrono::milliseconds{1000});
+    auto address = getTCPPublicAddress(bindAddr, chrono::milliseconds{1000});
 //      this_thread::sleep_for(chrono::nanoseconds(500000));
 //    address = getTCPPublicAddress(bindAddr);
 
@@ -1195,10 +1195,20 @@ void testNegativeDuration() {
     cout << "Negative duration: " << (start - chrono::steady_clock::now()).count() << endl;
 }
 
+void testListIterators() {
+    list<int> ls{1, 2, 3, 4, 5, 6, 7};
+    auto it1 = next(ls.begin(), 1);
+    cout << "it1's value before splice: " << *it1 << endl;
+    ls.splice(ls.end(), ls, next(ls.begin(), 1));
+    cout << "it1's value after splice: " << *it1 << endl;
+    auto it2 = next(ls.begin(), 1);
+    cout << "it2's value after splice: " << *it2 << endl;
+}
+
 int main() {
     initPlatform();
 //    Builder<int> builder([](TCPSocket &sock, const sockaddr_storage &addr, const int &info) {});
-    testTCPMappedAddress();
+    testListIterators();
 }
 
 #pragma clang diagnostic pop

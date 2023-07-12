@@ -26,11 +26,7 @@ public:
     constexpr static chrono::milliseconds SYN_ACK_DELAY{500};
     constexpr static chrono::seconds NO_PROBING_TIMEOUT{30};
 
-    TCPSession(socket_t &maxFd,
-               fd_set &rcv, fd_set
-               &snd,
-               fd_set &err
-    ) : data(new Data{maxFd, rcv, snd, err}) {
+    TCPSession(fd_set &rcv, fd_set &snd, fd_set &err) : data(new Data{rcv, snd, err}) {
 
     }
 
@@ -176,7 +172,6 @@ public:
                     data->pushRTT(chrono::duration_cast<chrono::milliseconds>(data->lastTimeSentNewData - now));
                     data->lastTimeAcceptedAcknowledgement = now;
                     data->socket.setIn(data->receiveSet);
-                    data->maxFD = max(data->maxFD, data->socket.getFD() + 1);
                     data->state = ESTABLISHED;
 #ifdef LOGGING
                     cout << "Received ack and set rtt = " << data->getMeanRTT().count() << "ms" << endl;
@@ -426,29 +421,48 @@ public:
         closeSession();
     }
 
-    void checkStatus() {
+    bool checkStatus() {
         switch (data->state) {
+            case CLOSED:
+                return false;
             case SYN_ACK_SENT:
-                if (chrono::steady_clock::now() - data->lastTimeSentNewData > SYN_TIMEOUT) closeSession();
-                break;
+                if (chrono::steady_clock::now() - data->lastTimeSentNewData > SYN_TIMEOUT) {
+                    closeSession();
+                    return false;
+                }
             case ESTABLISHED:
                 if (chrono::steady_clock::now() - data->lastTimeAcceptedAcknowledgement >
                     (data->flushToClientFinished ? NO_PROBING_TIMEOUT : getIntervalToNextProbe() +
-                                                                        data->getMeanRTT() * 2))
+                                                                        data->getMeanRTT() * 2)) {
                     closeSession();
-                break;
+                    return false;
+                }
             default:
                 break;
         }
+        return true;
+    }
+
+    TCPSocket &getSessionSocket() {
+        return data->socket;
+    }
+
+    void setOnSocketClose(function<void()> callback) {
+        if (!callback)throw invalid_argument("Empty callback is disallowed");
+        data->onSocketClose = callback;
+    }
+
+    function<void()> &getOnSocketClose() {
+        return data->onSocketClose;
     }
 
     void closeSession() {
         data->socket.unsetFrom(data->receiveSet);
         data->socket.unsetFrom(data->sendSet);
         data->socket.unsetFrom(data->errorSet);
-        if (data->socket.getFD() + 1 == data->maxFD)data->maxFD--; //todo: make effective
         data->state = CLOSED;
         data->socket.close();
+        data->onSocketClose();
     }
 
 private:
@@ -458,10 +472,10 @@ private:
     constexpr static chrono::milliseconds ACKNOWLEDGE_DELAY{100};
 
     struct Data {
-        socket_t &maxFD;
         fd_set &receiveSet;
         fd_set &sendSet;
         fd_set &errorSet;
+        function<void()> onSocketClose{[] {}};
         TCPSocket socket{DEFER_INIT};
 
         states state{CLOSED};
@@ -492,8 +506,8 @@ private:
         chrono::steady_clock::time_point lastTimeSentNewData{};
         chrono::steady_clock::time_point lastTimeAcceptedAcknowledgement{};
 
-        Data(socket_t &maxFD, fd_set &rcv, fd_set &snd, fd_set &err) : maxFD(maxFD), receiveSet(rcv), sendSet(snd),
-                                                                       errorSet(err) {
+        Data(fd_set &rcv, fd_set &snd, fd_set &err) : receiveSet(rcv), sendSet(snd),
+                                                      errorSet(err) {
             for (auto &rtt: rttHistory) {
                 rtt = MIN_RTT * 5;
             }

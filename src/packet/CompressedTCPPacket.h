@@ -49,9 +49,9 @@ private:
     };
 public:
 
-    explicit CompressedTCPPacket();
+    inline explicit CompressedTCPPacket();
 
-    explicit CompressedTCPPacket(unsigned int extra);
+    inline  explicit CompressedTCPPacket(unsigned int extra);
 
     inline void swapEnds();
 
@@ -65,9 +65,9 @@ public:
 
     inline void setDestinationAddress(sockaddr_storage &addr);
 
-    sockaddr_storage getSourceAddress();
+    inline sockaddr_storage getSourceAddress();
 
-    sockaddr_storage getDestinationAddress();
+    inline sockaddr_storage getDestinationAddress();
 
     inline void setSequenceNumber(unsigned int seq);
 
@@ -206,8 +206,10 @@ void CompressedTCPPacket::setWindowSize(unsigned short window, unsigned char shi
 
 void CompressedTCPPacket::setWindow(unsigned int total) {
     auto &tcph = getTCPHeader();
-    tcph.window = toNetworkByteOrder(static_cast<unsigned short>(min(total, static_cast<unsigned int>(numeric_limits<unsigned short>::max()))));
-    tcph.windowShift = static_cast<char>(min(log2(total / numeric_limits<unsigned short>::max()), static_cast<double>(14)));
+    tcph.window = toNetworkByteOrder(
+            static_cast<unsigned short>(min(total, static_cast<unsigned int>(numeric_limits<unsigned short>::max()))));
+    tcph.windowShift = static_cast<char>(min(log2(total / numeric_limits<unsigned short>::max()),
+                                             static_cast<double>(14)));
 }
 
 void CompressedTCPPacket::setMSS(unsigned short size) {

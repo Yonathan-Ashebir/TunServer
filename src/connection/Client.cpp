@@ -224,41 +224,41 @@ errno != ECONNREFUSED && errno != ETIMEDOUT
                 } else if (chrono::steady_clock::now() - startTime > timeout) {
                     printf("Timeout\n");
                     break;
-                } else   this_thread::sleep_for(chrono::nanoseconds(10000));
+                } else this_thread::sleep_for(chrono::nanoseconds(10000));
             } else {
                 printf("Separately Connected\n");
                 char buf[10000]{};
 
-                auto lastReadTime = chrono::steady_clock::now();
-                reader.setBlocking(false);
-                unsigned long amt{};
-                while (true) {
-                    int r = reader.receiveIgnoreWouldBlock(buf, sizeof buf);
-                    if (r > 0) {
-                        amt += r;
-                        lastReadTime = chrono::steady_clock::now();
-                        cout << "Read bytes: " << r << ", total: " << amt << endl;
-
-                    } else if (r == 0) {
-                        cout << "Separate socket closed gracefully after reading bytes: " << amt << endl;
-                        break;
-                    } else {
-                        if (chrono::steady_clock::now() - lastReadTime > chrono::milliseconds(3000)) {
-                            cout << "Separate socket timed out after reading bytes: " << amt << endl;
-                            break;
-                        }
-                    }
-                      this_thread::sleep_for(chrono::nanoseconds(10000));
-                }
-                TCPSocket sock2;
-                sock2.setReuseAddress(true);
-                sock2.bind(bindAddress);
-                sockaddr_in otherStunAddr{AF_INET, htons(3478)};
-                inet_pton(AF_INET, "193.22.17.97", &otherStunAddr.sin_addr);
-                sock2.connect(otherStunAddr);
-                auto r = getTCPPublicAddress(sock2, true);
-                cout << "Public address after: " << getAddressString(*r) << endl;
-                break;
+//                auto lastReadTime = chrono::steady_clock::now();
+//                reader.setBlocking(false);
+//                unsigned long amt{};
+//                while (true) {
+//                    int r = reader.receiveIgnoreWouldBlock(buf, sizeof buf);
+//                    if (r > 0) {
+//                        amt += r;
+//                        lastReadTime = chrono::steady_clock::now();
+//                        cout << "Read bytes: " << r << ", total: " << amt << endl;
+//
+//                    } else if (r == 0) {
+//                        cout << "Separate socket closed gracefully after reading bytes: " << amt << endl;
+//                        break;
+//                    } else {
+//                        if (chrono::steady_clock::now() - lastReadTime > chrono::milliseconds(3000)) {
+//                            cout << "Separate socket timed out after reading bytes: " << amt << endl;
+//                            break;
+//                        }
+//                    }
+//                      this_thread::sleep_for(chrono::nanoseconds(10000));
+//                }
+//                TCPSocket sock2;
+//                sock2.setReuseAddress(true);
+//                sock2.bind(bindAddress);
+//                sockaddr_in otherStunAddr{AF_INET, htons(3478)};
+//                inet_pton(AF_INET, "193.22.17.97", &otherStunAddr.sin_addr);
+//                sock2.connect(otherStunAddr);
+//                auto r = getTCPPublicAddress(sock2, true);
+//                cout << "Public address after: " << getAddressString(*r) << endl;
+//                break;
 
                 reader.receive(buf, sizeof buf);
                 deserializeJson(doc, buf);
@@ -278,6 +278,13 @@ errno != ECONNREFUSED && errno != ETIMEDOUT
 #ifdef LOGGING
                     printf("Selected server with id of %d at %s:%d\n", serverId, serverIp.c_str(), serverPort);
 #endif
+                    TCPSocket connector;
+                    while (true)
+                        try {
+                            connector.connect(addrName.c_str(), serverPort);
+                            cout << "Connected successfully" << endl;
+                            break;
+                        } catch (...) {};
                 } else throw BadException("No 'servers' field provided");
                 break;
             }
@@ -411,7 +418,7 @@ err != ECONNREFUSED && err != ETIMEDOUT
                         if (reader.tryConnect(serverAddr) == -1) {
                             if (isConnectionInProgress()) break;
                         }
-                      this_thread::sleep_for(chrono::nanoseconds(10000));
+                    this_thread::sleep_for(chrono::nanoseconds(10000));
                 }
             } else if (chrono::steady_clock::now() - startTime > timeout) {
                 printf("Timeout\n");
@@ -423,7 +430,7 @@ err != ECONNREFUSED && err != ETIMEDOUT
                         if (isConnectionInProgress()) break;
                     }
                 }
-                  this_thread::sleep_for(chrono::nanoseconds(1000));
+                this_thread::sleep_for(chrono::nanoseconds(1000));
             }
         }
         th.join();
@@ -436,8 +443,6 @@ err != ECONNREFUSED && err != ETIMEDOUT
 
 int main() {
     initPlatform();
-    size_t count{};
-    while (true)
-        test2();
+    test2();
 
 }

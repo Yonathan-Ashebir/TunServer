@@ -60,7 +60,7 @@ public:
 
     inline void setSendTimeout(chrono::milliseconds timeout) {
 #ifdef _WIN32
-        DWORD val{timeout.count()};
+        DWORD val{static_cast<DWORD>(timeout.count())};
 #else
         timeval val{timeout / chrono::seconds(1), (timeout % chrono::seconds(1)).count() * 1000};
 #endif
@@ -69,7 +69,7 @@ public:
 
     inline chrono::milliseconds getSendTimeout() {
 #ifdef _WIN32
-        DWORD val{}
+        DWORD val{};
         getSocketOption(SO_RCVTIMEO,val);
         return chrono::milliseconds{val};
 #else
@@ -81,7 +81,7 @@ public:
 
     inline void setReceiveTimeout(chrono::milliseconds timeout) {
 #ifdef _WIN32
-        DWORD val{timeout.count()};
+        DWORD val{static_cast<DWORD>(timeout.count())};
 #else
         timeval val{timeout / chrono::seconds(1), (timeout % chrono::seconds(1)).count() * 1000};
 #endif
@@ -90,7 +90,7 @@ public:
 
     inline chrono::milliseconds getReceiveTimeout() {
 #ifdef _WIN32
-        DWORD val{}
+        DWORD val{};
         getSocketOption(SO_RCVTIMEO,val);
         return chrono::milliseconds{val};
 #else
@@ -192,7 +192,7 @@ public:
         FD_ZERO(&err);
         setIn(snd);
         setIn(err);
-        timeval timeval{0, timeout.count() * 1000};
+        timeval timeval{  static_cast<long>(timeout / chrono::seconds{1}) ,static_cast<long>(timeout / chrono::seconds {1})};
         auto count = select(data->socket + 1, nullptr, &snd, &err, &timeval);
         if (count < 0)throw SocketError("select failed on socket");
         if (count == 0)throw SocketError("Connect timed out");

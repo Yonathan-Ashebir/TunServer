@@ -47,7 +47,7 @@ void testSendAndReceive() {
         FD_ZERO(&rcv);
         FD_ZERO(&snd);
         FD_ZERO(&err);
-        DisposableTunnel senderTunnel{sock1, rcv, snd, err};
+        DisposableTunnel senderTunnel{0,sock1, rcv, snd, err};
 
         TCPSocket sock3;
         TCPSocket sock4;
@@ -59,7 +59,7 @@ void testSendAndReceive() {
         initialize(sock4Addr, AF_INET, "127.0.0.1", -1);
         sock3.connect(sock4Addr);
         sock3.setBlocking(false);
-        DisposableTunnel tunnelToClose{sock3, rcv, snd, err};
+        DisposableTunnel tunnelToClose{0,sock3, rcv, snd, err};
         tunnelToClose.setOnUnsentData([&](DisposableTunnel::UnsentData &unsentData) {
 #ifdef LOGGING
             cout << "UnsentData.offset: " << unsentData.offset << " remaining: " << unsentData.remaining << endl;
@@ -102,8 +102,7 @@ void testSendAndReceive() {
     FD_ZERO(&rcv);
     FD_ZERO(&snd);
     FD_ZERO(&err);
-    DisposableTunnel tunnel{sock2, rcv, snd, err};
-    tunnel.setId(1);
+    DisposableTunnel tunnel{1,sock2, rcv, snd, err};
     tunnel.setOnDeleteTunnelRequest([&](unsigned id) {
         assert(id == 13);
 #ifdef LOGGING

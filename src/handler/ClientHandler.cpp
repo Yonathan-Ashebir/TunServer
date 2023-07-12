@@ -4,10 +4,3 @@
 
 #include "ClientHandler.h"
 
-ClientHandler::ClientHandler(unsigned int id, OnTunnelRequest &callback) : clientId(id), requestCallback(callback) {
-
-}
-
-ClientHandler::ClientHandler(unsigned int id) : clientId(id), requestCallback() {
-
-}

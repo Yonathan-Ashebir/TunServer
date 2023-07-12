@@ -34,9 +34,9 @@ public:
     using OnUnsentData = function<void(UnsentData &data)>;
     using OnNewTunnelRequest = function<void(void)>;
 
-    inline explicit DisposableTunnel(TCPSocket &sock, fd_set &rcv, fd_set &snd, fd_set &err,
+    inline explicit DisposableTunnel(unsigned int id, TCPSocket &sock, fd_set &rcv, fd_set &snd, fd_set &err,
                                      unsigned int size = MIN_SS * 5) : CompressedTunnel(sock),
-                                                                       data(new Data(size, rcv, snd, err)) {
+                                                                       data(new Data(id, size, rcv, snd, err)) {
         socket.setIn(rcv);
         socket.setIn(err);
         data->lastSuccessfulSendTime = chrono::steady_clock::now();
@@ -125,7 +125,7 @@ public:
                     return;
                 }
             }
-            advanceLastPacketSent();
+//            advanceLastPacketSent();
 
             data->incompleteSend = false;
             data->lastPacketSent = data->sendUser = data->sendNext = 0;
@@ -435,13 +435,14 @@ public:
         }
     }
 
-    void reset(TCPSocket &sock) {
-        reset(sock, data->receiveSet, data->sendSet, data->errorSet);
+    void reset(unsigned int id, TCPSocket &sock) {
+        reset(id, sock, data->receiveSet, data->sendSet, data->errorSet);
     }
 
-    void reset(TCPSocket &sock, fd_set &rcv, fd_set &snd, fd_set &err) {
+    void reset(unsigned int id, TCPSocket &sock, fd_set &rcv, fd_set &snd, fd_set &err) {
         close();
         socket = sock;
+        data->id = id;
         data->receiveSet = rcv;
         data->sendSet = snd;
         data->errorSet = err;
@@ -459,14 +460,14 @@ public:
         data->isOpen = true;
     }
 
-    void checkStatus() {
-        if (!isOpen())return;
+    bool checkStatus() {
+        if (!isOpen())return false;
         if (data->incompleteSend && chrono::steady_clock::now() - data->lastSuccessfulSendTime > sendTimeout) {
 #ifdef LOGGING
             cout << "Tunnel's send timed-out" << endl;
 #endif
             close();
-            return;
+            return false;
         }
 
         if (data->incompleteReceive && chrono::steady_clock::now() - data->lastSuccessfulReceiveTime > receiveTimeout) {
@@ -474,7 +475,7 @@ public:
             cout << "Tunnel's receive timed out" << endl;
 #endif
             close();
-            return;
+            return false;
         }
 
         if (data->hasSentPing) {
@@ -483,6 +484,7 @@ public:
                 cout << "Tunnel ping timed out" << endl;
 #endif
                 close();
+                return false;
             }
         } else {
             /*send ping*/
@@ -490,7 +492,7 @@ public:
                                                                                                        data->sendUser;
             auto available = data->sendWrappedAround ? currentBufferSize : currentBufferSize +
                                                                            data->lastPacketSent;
-            if (available < 2) return;
+            if (available < 2) return true;
             if (!currentBufferSize) {
                 data->sendWrappedAround = true;
                 data->sendUser = 0;
@@ -500,6 +502,7 @@ public:
             data->hasSentPing = true;
             data->lastPingTime = chrono::steady_clock::now();
         }
+        return true;
     }
 
     bool sendNewTunnelRequest() {
@@ -762,12 +765,12 @@ public:
         return result;
     }
 
-    void setId(unsigned id) {
-        data->id = id;
-    }
-
     unsigned int getId() {
         return data->id;
+    }
+
+    TCPSocket &getTCPSocket() {
+        return *reinterpret_cast<TCPSocket *>(&socket);
     }
 
     OnNewTunnelResponse &getOnNewTunnelResponse() {
@@ -843,8 +846,10 @@ private:
             delete[] receiveBuffer;
         }
 
-        Data(unsigned int size, fd_set &rcv, fd_set &snd, fd_set &err) : size(size), receiveSet(rcv), sendSet(snd),
-                                                                         errorSet(err) {
+        Data(unsigned int id, unsigned int size, fd_set &rcv, fd_set &snd, fd_set &err) : id(id), size(size),
+                                                                                          receiveSet(rcv),
+                                                                                          sendSet(snd),
+                                                                                          errorSet(err) {
 
         }
     };
@@ -904,10 +909,6 @@ private:
             data->lastPacketSent = (data->size - data->lastPacketSent > totalSize) ? data->lastPacketSent + totalSize :
                                    totalSize + data->lastPacketSent - data->size;
         }
-    }
-
-    TCPSocket &getTCPSocket() {
-        return *reinterpret_cast<TCPSocket *>(&socket);
     }
 
     inline void receivedPing() {

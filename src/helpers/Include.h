@@ -25,13 +25,14 @@
 #include <functional>
 #include <memory>
 #include <future>
+#include <list>
 #include <csignal>
 #include <cassert>
 #include <sys/types.h>
 #include "stun++/message.h"
 #include "Error.h"
 
-//#define STRICT_MODE
+#define STRICT_MODE
 #define LOGGING
 #define IP_MSS 572
 const int INT_ONE = 1;
