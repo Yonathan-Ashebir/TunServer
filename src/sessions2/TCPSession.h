@@ -10,7 +10,7 @@
 #include <utility>
 
 #include "../Include.h"
-#include "../packet/CompressedTCPPacket.h"
+#include "tun-commons/packets/CompressedTCPPacket.h"
 
 class TCPSession {
 public:

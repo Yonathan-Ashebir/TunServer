@@ -5,11 +5,11 @@
 #pragma ide diagnostic ignored "OCUnusedGlobalDeclarationInspection"
 
 #include "Include.h"
-#include "./packet/TCPPacket.h"
-#include "./tunnel/DatagramTunnel.h"
+#include <tun-commons/packets/TCPPacket.h>
+#include <tun-commons/tunnel/DatagramTunnel.h>
 #include "Test.h"
 #include "./sessions2/TCPSession.h"
-#include "./connection/Builder.h"
+#include "ylib-cxx/net/TCPConnector.h"
 
 using namespace std;
 

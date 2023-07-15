@@ -1,7 +1,7 @@
 //
 // Created by yoni_ash on 5/29/23.
 //
-#include "Builder.h"
+#include "ylib-cxx/net/TCPConnector.h"
 #include "ConnectionFetcher.h"
 
 using namespace std;
@@ -12,7 +12,7 @@ void test1() {
     auto *bindAddrIn = reinterpret_cast<sockaddr_in *>(&bindAddr);
     bindAddrIn->sin_port = htons(bindPort);
 
-    Builder<unsigned int> builder{[](TCPSocket &sock, const sockaddr_storage &addr, const unsigned int &info) {
+    TCPConnector<unsigned int> builder{[](TCPSocket &sock, const sockaddr_storage &addr, const unsigned int &info) {
         printf("Socket %d connected\n", sock.getFD());
         sock.close();
     }, [](int errorNum, const sockaddr_storage &addr, const unsigned int &info) {

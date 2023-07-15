@@ -2,5 +2,11 @@
 	path = external/curl
 	url = git@github.com:Yonathan-Ashebir/curl.git
 [submodule "external/stun-msg"]
-	path = external/stun
-	url = https://github.com/balena/stun-msg.git
+	path = external/stun-msg
+	url = git@github.com:Yonathan-Ashebir/StunMessage.git
+[submodule "external/ylib-cxx"]
+	path = external/ylib-cxx
+	url = git@github.com:Yonathan-Ashebir/Ylib_cxx.git
+[submodule "external/tun-commons"]
+	path = external/tun-commons
+	url = git@github.com:Yonathan-Ashebir/TUNCommons.git

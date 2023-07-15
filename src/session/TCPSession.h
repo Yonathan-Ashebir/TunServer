@@ -11,8 +11,8 @@
 #pragma once
 
 #include "../Include.h"
-#include "../packet/TCPPacket.h"
-#include "../tunnel/Tunnel.h"
+#include <tun-commons/packets/TCPPacket.h>
+#include <tun-commons/tunnel/Tunnel.h>
 
 using namespace std;
 

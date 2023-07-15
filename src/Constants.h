@@ -5,7 +5,7 @@
 #ifndef TUNSERVER_CONSTANTS_H
 #define TUNSERVER_CONSTANTS_H
 
-#include "./helpers/Include.h"
+#include <ylib-cxx/Include.h>
 
 struct DataSegment {
     unsigned short size;
